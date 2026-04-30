@@ -72,6 +72,8 @@ The backend server can be accessed at:
 
 For example, given the ssh connection settings for my virtual machine:
 
+<img width="477" height="298" alt="image" src="https://github.com/user-attachments/assets/1babbb4a-a9ad-4d7e-ad3b-2fec4d892e1d" />
+
 
 My frontend and backend servers can be accessed at `http://172.16.64.133:5173` and `http://172.16.64.133/api/health` respectively.
 
@@ -82,6 +84,9 @@ My frontend and backend servers can be accessed at `http://172.16.64.133:5173` a
 # Run this command in a terminal in your VM, not your local machine
 sudo ovs-ofctl -O OpenFlow13 dump-flows s1
 ```
+Example result:
+
+<img width="972" height="47" alt="image" src="https://github.com/user-attachments/assets/7fad2f71-3267-40af-884b-eb51aeacfc1c" />
 
 ## Demo Flow
 

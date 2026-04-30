@@ -12,8 +12,8 @@ function FlowRulesPanel({ flows, error, raw }) {
           <article className="flow-row" key={`${flow.raw}-${index}`}>
             <div className="flow-topline">
               <strong>Switch: {flow.switch}</strong>
-              <span className={isDrop(flow.actions) ? "drop-action" : "forward-action"}>
-                {isDrop(flow.actions) ? "DROP" : "FORWARD"}
+              <span className={actionClass(flow)}>
+                {actionLabel(flow)}
               </span>
             </div>
             <dl>
@@ -49,6 +49,30 @@ function FlowRulesPanel({ flows, error, raw }) {
 function isDrop(actions = "") {
   const normalized = actions.trim().toLowerCase();
   return normalized === "drop" || normalized === "";
+}
+
+function isMeter(flow) {
+  return Boolean(flow.meter_id) || /meter[:=]\d+/i.test(flow.actions || "");
+}
+
+function actionLabel(flow) {
+  if (isDrop(flow.actions)) {
+    return "DROP";
+  }
+  if (isMeter(flow)) {
+    return "RATE_LIMIT";
+  }
+  return "FORWARD";
+}
+
+function actionClass(flow) {
+  if (isDrop(flow.actions)) {
+    return "drop-action";
+  }
+  if (isMeter(flow)) {
+    return "meter-action";
+  }
+  return "forward-action";
 }
 
 export default FlowRulesPanel;

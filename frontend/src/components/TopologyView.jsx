@@ -1,12 +1,12 @@
 import { Server, Shield, Waypoints } from "lucide-react";
 
 const NODE_POSITIONS = {
-  h1: { x: 76, y: 58 },
-  h2: { x: 72, y: 156 },
-  h3: { x: 72, y: 254 },
-  h4: { x: 72, y: 352 },
+  h1: { x: 76, y: 88 },
+  h2: { x: 76, y: 208 },
+  h3: { x: 76, y: 328 },
+  h4: { x: 518, y: 128 },
   s1: { x: 292, y: 205 },
-  h5: { x: 518, y: 205 },
+  h5: { x: 518, y: 290 },
   c0: { x: 292, y: 372 },
 };
 
@@ -15,13 +15,12 @@ const LINKS = [
   ["h2", "s1"],
   ["h3", "s1"],
   ["h4", "s1"],
-  ["s1", "h5"],
+  ["h5", "s1"],
   ["c0", "s1"],
 ];
 
 function TopologyView({ hosts, status }) {
   const hostByName = Object.fromEntries(hosts.map((host) => [host.host, host]));
-  const demoState = status?.demo_state || "idle";
 
   return (
     <section className="panel topology-panel">
@@ -66,10 +65,10 @@ function TopologyView({ hosts, status }) {
             <NetworkNode
               key={name}
               name={name}
-              label={host.role || "host"}
+              label={displayRole(host)}
               x={NODE_POSITIONS[name].x}
               y={NODE_POSITIONS[name].y}
-              tone={nodeTone(name, host.status, demoState)}
+              tone={nodeTone(host.status)}
               icon="host"
             />
           );
@@ -77,8 +76,8 @@ function TopologyView({ hosts, status }) {
       </svg>
       <div className="legend">
         <LegendItem tone="normal" label="normal" />
-        <LegendItem tone="suspicious" label="suspicious" />
-        <LegendItem tone="danger" label="attack" />
+        <LegendItem tone="suspicious" label="rate limited" />
+        <LegendItem tone="danger" label="blocked" />
         <LegendItem tone="inactive" label="inactive" />
         <LegendItem tone="blue" label="control plane" />
       </div>
@@ -115,12 +114,32 @@ function LegendItem({ tone, label }) {
   );
 }
 
-function nodeTone(name, hostStatus, demoState) {
-  if (hostStatus === "blocked" || (name === "h1" && demoState === "mitigated")) {
+function displayRole(host = {}) {
+  if (host.status === "blocked" || host.mitigation === "drop") {
+    return "attacker";
+  }
+  if (
+    host.status === "rate_limited" ||
+    host.status === "suspicious" ||
+    host.mitigation === "rate_limit"
+  ) {
+    return "suspicious";
+  }
+  if (host.status === "under_attack" || host.status === "protected") {
+    return "victim";
+  }
+  return "normal";
+}
+
+function nodeTone(hostStatus) {
+  if (hostStatus === "blocked") {
     return "danger";
   }
-  if (hostStatus === "under_attack" || hostStatus === "suspicious") {
-    return name === "h5" || name === "h1" ? "danger" : "suspicious";
+  if (hostStatus === "rate_limited" || hostStatus === "suspicious") {
+    return "suspicious";
+  }
+  if (hostStatus === "under_attack") {
+    return "danger";
   }
   if (hostStatus === "active" || hostStatus === "receiving" || hostStatus === "protected") {
     return "normal";

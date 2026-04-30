@@ -36,9 +36,14 @@ def start_normal_traffic():
     return traffic_manager.start_normal()
 
 
-@app.post("/api/traffic/attack/start")
-def start_attack_traffic():
-    return traffic_manager.start_attack()
+@app.post("/api/demo/single-source-flood/start")
+def start_single_source_flood():
+    return traffic_manager.start_single_source_flood()
+
+
+@app.post("/api/demo/multi-source-flood/start")
+def start_multi_source_flood():
+    return traffic_manager.start_multi_source_flood()
 
 
 @app.post("/api/traffic/stop")
@@ -64,6 +69,11 @@ def alerts():
 @app.get("/api/flows")
 def flows():
     return ovs_reader.get_flows()
+
+
+@app.get("/api/meters")
+def meters():
+    return ovs_reader.get_meters()
 
 
 @app.post("/api/flows/refresh")

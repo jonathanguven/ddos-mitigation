@@ -3,7 +3,8 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
-  ShieldAlert,
+  ShieldX,
+  UsersRound,
 } from "lucide-react";
 
 const controls = [
@@ -15,11 +16,18 @@ const controls = [
     handler: "onStartNormal",
   },
   {
-    key: "attack",
-    label: "Start Attack Traffic",
-    icon: ShieldAlert,
+    key: "single-source",
+    label: "Start Single-Source Flood",
+    icon: ShieldX,
     className: "danger",
-    handler: "onStartAttack",
+    handler: "onStartSingleSource",
+  },
+  {
+    key: "multi-source",
+    label: "Start Multi-Source Flood",
+    icon: UsersRound,
+    className: "warning",
+    handler: "onStartMultiSource",
   },
   {
     key: "stop",

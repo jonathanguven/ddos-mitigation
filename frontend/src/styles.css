@@ -103,9 +103,15 @@ h2 {
 }
 
 .state-attack,
+.state-rate_limited,
 .state-mitigated {
   border-color: #ebb3b3;
   color: #9d2525;
+}
+
+.state-rate_limited {
+  border-color: #e3c36c;
+  color: #7b5410;
 }
 
 .state-normal {
@@ -129,7 +135,7 @@ h2 {
   border-radius: 8px;
   display: grid;
   gap: 1px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-bottom: 16px;
   overflow: hidden;
 }
@@ -158,7 +164,8 @@ h2 {
     "topology hosts"
     "alerts controls"
     "metrics metrics"
-    "flows flows";
+    "flows flows"
+    "meters meters";
   grid-template-columns: minmax(520px, 1.05fr) minmax(420px, 0.95fr);
 }
 
@@ -341,6 +348,12 @@ h2 {
   color: #27394b;
 }
 
+.control-button.warning {
+  background: #fff2ce;
+  border-color: #e3c36c;
+  color: #7b5410;
+}
+
 .host-panel {
   grid-area: hosts;
 }
@@ -354,7 +367,8 @@ h2 {
 }
 
 .metrics-panel,
-.flows-panel {
+.flows-panel,
+.meters-panel {
   grid-column: 1 / -1;
 }
 
@@ -364,6 +378,10 @@ h2 {
 
 .flows-panel {
   grid-area: flows;
+}
+
+.meters-panel {
+  grid-area: meters;
 }
 
 .table-wrap {
@@ -416,7 +434,8 @@ th {
 }
 
 .badge-suspicious,
-.badge-under_attack {
+.badge-under_attack,
+.badge-rate_limited {
   background: #fff2ce;
   color: #7b5410;
 }
@@ -484,7 +503,8 @@ th {
 }
 
 .drop-action,
-.forward-action {
+.forward-action,
+.meter-action {
   border-radius: 999px;
   font-size: 0.76rem;
   font-weight: 900;
@@ -501,45 +521,91 @@ th {
   color: #176142;
 }
 
-.flow-row dl {
+.meter-action {
+  background: #fff2ce;
+  color: #7b5410;
+}
+
+.mitigation-label {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 900;
+  margin-right: 8px;
+  padding: 3px 7px;
+}
+
+.mitigation-drop {
+  background: #ffeded;
+  color: #9d2525;
+}
+
+.mitigation-rate_limit {
+  background: #fff2ce;
+  color: #7b5410;
+}
+
+.flow-row dl,
+.meter-row dl {
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0 0 10px;
 }
 
-.flow-row dl div {
+.meter-row dl {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.flow-row dl div,
+.meter-row dl div {
   background: #f4f7fb;
   border-radius: 8px;
   padding: 8px;
 }
 
-.flow-row dt {
+.flow-row dt,
+.meter-row dt {
   color: #657586;
   font-size: 0.74rem;
   font-weight: 800;
   text-transform: uppercase;
 }
 
-.flow-row dd {
+.flow-row dd,
+.meter-row dd {
   margin: 2px 0 0;
 }
 
-.flow-row p {
+.flow-row p,
+.meter-row p {
   color: #27394b;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.86rem;
   overflow-wrap: anywhere;
 }
 
-.flow-row p + p {
+.flow-row p + p,
+.meter-row p + p {
   margin-top: 6px;
 }
 
-.flow-row p span {
+.flow-row p span,
+.meter-row p span {
   color: #657586;
   font-family: inherit;
   font-weight: 800;
+}
+
+.meter-list {
+  display: grid;
+  gap: 10px;
+}
+
+.meter-row {
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  padding: 12px;
 }
 
 .raw-flows {
@@ -570,7 +636,8 @@ th {
       "alerts"
       "controls"
       "metrics"
-      "flows";
+      "flows"
+      "meters";
     grid-template-columns: 1fr;
   }
 }
@@ -597,7 +664,8 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .flow-row dl {
+  .flow-row dl,
+  .meter-row dl {
     grid-template-columns: 1fr;
   }
 }

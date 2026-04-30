@@ -7,8 +7,9 @@ from typing import Any
 from state_store import (
     append_alert,
     reset_state,
-    synthetic_attack_state,
+    synthetic_multi_source_flood_state,
     synthetic_normal_state,
+    synthetic_single_source_flood_state,
     synthetic_stop_state,
     update_status,
 )
@@ -38,13 +39,26 @@ def run_action(action: str) -> dict[str, Any]:
                 "action": action,
                 "message": response.get("error", "Mininet command failed"),
             }
-        _apply_success_state(action)
-        return {
+        _apply_success_state(action, response)
+        result = {
             "ok": True,
             "mode": "mininet",
             "action": action,
             "message": response.get("message", "Command completed"),
         }
+        for key in (
+            "attacker",
+            "attackers",
+            "attacker_ip",
+            "attacker_ips",
+            "victim",
+            "victim_ip",
+            "flows",
+            "standby_hosts",
+        ):
+            if key in response:
+                result[key] = response[key]
+        return result
     except (OSError, json.JSONDecodeError, TimeoutError) as exc:
         _apply_fallback_state(action)
         return {
@@ -58,13 +72,28 @@ def run_action(action: str) -> dict[str, Any]:
         }
 
 
-def _apply_success_state(action: str) -> None:
+def _apply_success_state(action: str, response: dict[str, Any]) -> None:
     if action == "start_normal":
         update_status(demo_state="normal", mininet_running=True)
-        append_alert("info", "Normal traffic started")
-    elif action == "start_attack":
+        append_alert("info", response.get("message", "Normal traffic started"))
+    elif action == "start_single_source_flood":
         update_status(demo_state="attack", mininet_running=True)
-        append_alert("warning", "Attack traffic started from h1 to h5")
+        append_alert(
+            "warning",
+            response.get("message", "Single-source flood started"),
+            alert_type="single_source_flood",
+            src_ip=response.get("attacker_ip"),
+            dst_ip=response.get("victim_ip"),
+        )
+    elif action == "start_multi_source_flood":
+        update_status(demo_state="attack", mininet_running=True)
+        append_alert(
+            "warning",
+            response.get("message", "Multi-source flood started"),
+            alert_type="multi_source_flood",
+            src_ips=response.get("attacker_ips"),
+            dst_ip=response.get("victim_ip"),
+        )
     elif action == "stop_traffic":
         update_status(demo_state="idle", mininet_running=True)
         append_alert("info", "Traffic stopped")
@@ -76,8 +105,10 @@ def _apply_success_state(action: str) -> None:
 def _apply_fallback_state(action: str) -> None:
     if action == "start_normal":
         synthetic_normal_state()
-    elif action == "start_attack":
-        synthetic_attack_state()
+    elif action == "start_single_source_flood":
+        synthetic_single_source_flood_state()
+    elif action == "start_multi_source_flood":
+        synthetic_multi_source_flood_state()
     elif action == "stop_traffic":
         synthetic_stop_state()
     elif action == "reset":
@@ -88,8 +119,12 @@ def start_normal() -> dict[str, Any]:
     return run_action("start_normal")
 
 
-def start_attack() -> dict[str, Any]:
-    return run_action("start_attack")
+def start_single_source_flood() -> dict[str, Any]:
+    return run_action("start_single_source_flood")
+
+
+def start_multi_source_flood() -> dict[str, Any]:
+    return run_action("start_multi_source_flood")
 
 
 def stop_traffic() -> dict[str, Any]:

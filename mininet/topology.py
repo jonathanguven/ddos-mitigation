@@ -8,8 +8,7 @@ Hosts:
   h4 normal   10.0.0.4
   h5 victim   10.0.0.5
 
-The script also starts a small localhost TCP command server on port 9001 so the
-FastAPI backend can trigger demo traffic without attaching to the Mininet CLI.
+The script also starts a small localhost TCP command server on port 9001 so the FastAPI backend can trigger demo traffic without attaching to the Mininet CLI.
 """
 
 import json

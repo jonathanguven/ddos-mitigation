@@ -114,6 +114,8 @@ function App() {
 
       <section className="dashboard-grid">
         <TopologyView hosts={stats.hosts || []} status={status} />
+        <HostStatsPanel hosts={stats.hosts || []} />
+        <AlertsPanel alerts={alerts.alerts || []} />
         <ControlPanel
           busyAction={busyAction}
           onStartNormal={() =>
@@ -126,8 +128,6 @@ function App() {
           onReset={() => runAction("reset", api.resetDemo)}
           onRefreshFlows={() => runAction("flows", api.refreshFlows)}
         />
-        <HostStatsPanel hosts={stats.hosts || []} />
-        <AlertsPanel alerts={alerts.alerts || []} />
         <MetricsChart history={stats.history || []} />
         <FlowRulesPanel flows={flows.flows || []} error={flows.error} raw={flows.raw || []} />
       </section>

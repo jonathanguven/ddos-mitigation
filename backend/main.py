@@ -1,0 +1,71 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+import mininet_manager
+import ovs_reader
+import state_store
+import traffic_manager
+
+
+app = FastAPI(title="SDN IDS + DDoS Mitigation Demo API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/api/status")
+def status():
+    state = state_store.get_status()
+    state["ryu_running"] = state["ryu_running"] or mininet_manager.ryu_running()
+    state["mininet_running"] = state["mininet_running"] or mininet_manager.mininet_running()
+    return state
+
+
+@app.post("/api/traffic/normal/start")
+def start_normal_traffic():
+    return traffic_manager.start_normal()
+
+
+@app.post("/api/traffic/attack/start")
+def start_attack_traffic():
+    return traffic_manager.start_attack()
+
+
+@app.post("/api/traffic/stop")
+def stop_traffic():
+    return traffic_manager.stop_traffic()
+
+
+@app.post("/api/reset")
+def reset_demo():
+    return traffic_manager.reset_demo()
+
+
+@app.get("/api/stats")
+def stats():
+    return state_store.get_stats()
+
+
+@app.get("/api/alerts")
+def alerts():
+    return state_store.get_alerts()
+
+
+@app.get("/api/flows")
+def flows():
+    return ovs_reader.get_flows()
+
+
+@app.post("/api/flows/refresh")
+def refresh_flows():
+    return ovs_reader.get_flows()

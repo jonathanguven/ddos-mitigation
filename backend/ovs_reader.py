@@ -49,14 +49,19 @@ def get_flows(switch: str = "s1") -> dict[str, Any]:
             "error": (result.stderr or result.stdout or "Unable to read OVS flows").strip(),
         }
 
-    raw_lines = [
+    flow_lines = [
         line.strip()
         for line in result.stdout.splitlines()
-        if line.strip() and "NXST_FLOW" not in line
+        if _is_flow_data_line(line.strip())
+    ]
+    flows = [
+        flow
+        for flow in (parse_flow_line(line, switch) for line in flow_lines)
+        if not _is_table_miss_flow(flow)
     ]
     return {
-        "flows": [parse_flow_line(line, switch) for line in raw_lines],
-        "raw": raw_lines,
+        "flows": flows,
+        "raw": [flow["raw"] for flow in flows],
         "error": None,
     }
 
@@ -83,12 +88,12 @@ def get_meters(switch: str = "s1") -> dict[str, Any]:
     raw_lines = [
         line.strip()
         for line in dump_result.stdout.splitlines()
-        if line.strip() and "OFPT_" not in line
+        if _is_meter_data_line(line.strip())
     ]
     stats_lines = [
         line.strip()
         for line in stats_result.stdout.splitlines()
-        if stats_result.returncode == 0 and line.strip() and "OFPT_" not in line
+        if stats_result.returncode == 0 and _is_meter_data_line(line.strip())
     ]
     stats_by_meter = {
         parsed["meter_id"]: parsed
@@ -98,6 +103,8 @@ def get_meters(switch: str = "s1") -> dict[str, Any]:
     meters = []
     for line in raw_lines:
         parsed = parse_meter_line(line)
+        if parsed["meter_id"] is None:
+            continue
         meter_stats = stats_by_meter.get(parsed["meter_id"], {})
         parsed.update(
             packet_count=meter_stats.get("packet_count", 0),
@@ -143,6 +150,19 @@ def _run_ovs(command: list[str]) -> subprocess.CompletedProcess[str]:
     if result.returncode != 0 and shutil.which("sudo"):
         result = _run(["sudo", "-n", *command])
     return result
+
+
+def _is_flow_data_line(line: str) -> bool:
+    return bool(line and "priority=" in line and "actions=" in line)
+
+
+def _is_meter_data_line(line: str) -> bool:
+    return bool(line and _regex_int(METER_RE["meter_id"], line) is not None)
+
+
+def _is_table_miss_flow(flow: dict[str, Any]) -> bool:
+    actions = flow.get("actions", "").upper()
+    return flow.get("priority") == 0 and flow.get("match") == "all" and "CONTROLLER" in actions
 
 
 def parse_flow_line(line: str, switch: str) -> dict[str, Any]:

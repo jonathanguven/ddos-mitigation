@@ -85,9 +85,7 @@ class DemoCommandHandler(socketserver.BaseRequestHandler):
             return self.stop_traffic()
         if action == "reset":
             self.stop_traffic()
-            os.system("ovs-ofctl -O OpenFlow13 del-flows s1 'priority=100,ip'")
-            os.system("ovs-ofctl -O OpenFlow13 del-flows s1 'priority=90,ip'")
-            os.system("ovs-ofctl -O OpenFlow13 del-meters s1")
+            self.reset_openflow_state()
             return {"message": "Traffic stopped and OpenFlow demo state cleared"}
 
         raise ValueError(f"Unsupported action: {action}")
@@ -107,6 +105,10 @@ class DemoCommandHandler(socketserver.BaseRequestHandler):
             host = self.host(name)
             host.cmd("pkill -f 'iperf -u -c' || true")
             host.cmd("pkill -f ping || true")
+
+    def reset_openflow_state(self):
+        os.system("ovs-ofctl -O OpenFlow13 del-flows s1")
+        os.system("ovs-ofctl -O OpenFlow13 del-meters s1")
 
     def start_udp_client(self, src, dst, rate, label):
         self.host(src).cmd(

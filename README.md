@@ -37,6 +37,14 @@ cd frontend
 npm install
 ```
 
+Fill in the environment variables for the frontend:
+
+```bash
+cp frontend/.env.example frontend/.env
+```
+
+Fill in the value of `VITE_API_BASE_URL` with your VM's IP Address
+
 ## Run Everything
 
 Start these commands in separate terminals (In your VM):

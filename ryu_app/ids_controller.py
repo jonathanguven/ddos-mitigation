@@ -57,7 +57,7 @@ class IdsController(app_manager.RyuApp):
         self.metrics = deque(maxlen=120)
         self.host_stats = self._initial_host_stats()
         self.monitor_thread = hub.spawn(self._monitor)
-        self._write_all_state()
+        self._write_all_state(merge_alerts=False)
 
     def _initial_host_stats(self):
         return {
@@ -76,13 +76,16 @@ class IdsController(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
+        self.install_table_miss(datapath)
+        self._add_alert("info", f"Switch s{datapath.id} connected to IDS controller")
+
+    def install_table_miss(self, datapath):
         parser = datapath.ofproto_parser
         ofproto = datapath.ofproto
 
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
         self.add_flow(datapath, 0, match, actions)
-        self._add_alert("info", f"Switch s{datapath.id} connected to IDS controller")
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])
     def state_change_handler(self, ev):
@@ -424,7 +427,9 @@ class IdsController(app_manager.RyuApp):
             return
 
         self.last_reset_signal = reset_mtime
-        self._remove_mitigation_flows()
+        self._reset_switch_state()
+        self.mac_to_port.clear()
+        self.ip_to_mac.clear()
         self.flow_stats.clear()
         self.mitigated.clear()
         self.meter_ids.clear()
@@ -441,13 +446,13 @@ class IdsController(app_manager.RyuApp):
                 "message": "Demo reset",
             }
         )
-        self._write_all_state()
+        self._write_all_state(merge_alerts=False)
 
-    def _remove_mitigation_flows(self):
+    def _reset_switch_state(self):
         for datapath in list(self.datapaths.values()):
             parser = datapath.ofproto_parser
             ofproto = datapath.ofproto
-            match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP)
+            match = parser.OFPMatch()
             mod = parser.OFPFlowMod(
                 datapath=datapath,
                 command=ofproto.OFPFC_DELETE,
@@ -464,6 +469,7 @@ class IdsController(app_manager.RyuApp):
                 bands=[],
             )
             datapath.send_msg(meter_mod)
+            self.install_table_miss(datapath)
 
     def _expire_mitigation_state(self):
         now = time.time()
@@ -527,7 +533,7 @@ class IdsController(app_manager.RyuApp):
             self.demo_state = "mitigated"
         self._write_all_state()
 
-    def _write_all_state(self):
+    def _write_all_state(self, merge_alerts=True):
         self._atomic_write(
             STATS_FILE,
             {
@@ -536,7 +542,7 @@ class IdsController(app_manager.RyuApp):
                 "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
             },
         )
-        self._atomic_write(ALERTS_FILE, {"alerts": list(self.alerts)})
+        self._atomic_write(ALERTS_FILE, {"alerts": self._alerts_for_write(merge_alerts)})
         self._atomic_write(
             STATE_FILE,
             {
@@ -546,6 +552,38 @@ class IdsController(app_manager.RyuApp):
                 "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
             },
         )
+
+    def _alerts_for_write(self, merge_alerts):
+        alerts = list(self.alerts)
+        if merge_alerts:
+            alerts = self._merge_alerts(self._read_alerts_from_disk(), alerts)
+        alerts = alerts[-100:]
+        self.alerts = deque(alerts, maxlen=100)
+        return alerts
+
+    def _read_alerts_from_disk(self):
+        try:
+            with ALERTS_FILE.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return []
+
+        alerts = payload.get("alerts") if isinstance(payload, dict) else payload
+        return alerts if isinstance(alerts, list) else []
+
+    def _merge_alerts(self, *alert_lists):
+        merged = []
+        seen = set()
+        for alerts in alert_lists:
+            for alert in alerts:
+                if not isinstance(alert, dict):
+                    continue
+                key = json.dumps(alert, sort_keys=True, default=str)
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(alert)
+        return merged[-100:]
 
     def _atomic_write(self, path, payload):
         tmp_path = path.with_suffix(path.suffix + ".tmp")

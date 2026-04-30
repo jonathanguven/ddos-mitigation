@@ -22,10 +22,13 @@ export const api = {
   stats: () => request("/api/stats"),
   alerts: () => request("/api/alerts"),
   flows: () => request("/api/flows"),
+  meters: () => request("/api/meters"),
   startNormalTraffic: () =>
     request("/api/traffic/normal/start", { method: "POST" }),
-  startAttackTraffic: () =>
-    request("/api/traffic/attack/start", { method: "POST" }),
+  startSingleSourceFlood: () =>
+    request("/api/demo/single-source-flood/start", { method: "POST" }),
+  startMultiSourceFlood: () =>
+    request("/api/demo/multi-source-flood/start", { method: "POST" }),
   stopTraffic: () => request("/api/traffic/stop", { method: "POST" }),
   resetDemo: () => request("/api/reset", { method: "POST" }),
   refreshFlows: () => request("/api/flows/refresh", { method: "POST" }),

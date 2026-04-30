@@ -2,17 +2,18 @@
 """Single-switch Mininet topology for the SDN IDS demo.
 
 Hosts:
-  h1 attacker 10.0.0.1
-  h2 normal   10.0.0.2
-  h3 normal   10.0.0.3
-  h4 normal   10.0.0.4
-  h5 victim   10.0.0.5
+  h1 10.0.0.1
+  h2 10.0.0.2
+  h3 10.0.0.3
+  h4 10.0.0.4
+  h5 10.0.0.5
 
 The script also starts a small localhost TCP command server on port 9001 so the FastAPI backend can trigger demo traffic without attaching to the Mininet CLI.
 """
 
 import json
 import os
+import random
 import socketserver
 import threading
 
@@ -25,8 +26,18 @@ from mininet.topo import Topo
 
 COMMAND_HOST = "127.0.0.1"
 COMMAND_PORT = 9001
-VICTIM_IP = "10.0.0.5"
-ATTACKER_IP = "10.0.0.1"
+HOSTS = {
+    "h1": "10.0.0.1",
+    "h2": "10.0.0.2",
+    "h3": "10.0.0.3",
+    "h4": "10.0.0.4",
+    "h5": "10.0.0.5",
+}
+HOST_NAMES = list(HOSTS)
+TRAFFIC_DURATION_SECONDS = 60
+NORMAL_RATES = ["500K", "650K", "750K", "850K", "900K"]
+SINGLE_SOURCE_FLOOD_RATE = "100M"
+MULTI_SOURCE_FLOOD_RATE = "8M"
 
 
 class DemoTopo(Topo):
@@ -35,16 +46,8 @@ class DemoTopo(Topo):
     def build(self):
         switch = self.addSwitch("s1", protocols="OpenFlow13")
 
-        hosts = {
-            "h1": "10.0.0.1/24",
-            "h2": "10.0.0.2/24",
-            "h3": "10.0.0.3/24",
-            "h4": "10.0.0.4/24",
-            "h5": "10.0.0.5/24",
-        }
-
-        for name, ip in hosts.items():
-            host = self.addHost(name, ip=ip)
+        for name, ip in HOSTS.items():
+            host = self.addHost(name, ip=f"{ip}/24")
             self.addLink(host, switch)
 
 
@@ -74,50 +77,95 @@ class DemoCommandHandler(socketserver.BaseRequestHandler):
     def dispatch(self, action):
         if action == "start_normal":
             return self.start_normal()
-        if action == "start_attack":
-            return self.start_attack()
+        if action == "start_single_source_flood":
+            return self.start_single_source_flood()
+        if action == "start_multi_source_flood":
+            return self.start_multi_source_flood()
         if action == "stop_traffic":
             return self.stop_traffic()
         if action == "reset":
             self.stop_traffic()
-            os.system(
-                "ovs-ofctl -O OpenFlow13 del-flows s1 "
-                "'priority=100,ip,nw_src=10.0.0.1,nw_dst=10.0.0.5'"
-            )
-            return {"message": "Traffic stopped and mitigation flow removed"}
+            os.system("ovs-ofctl -O OpenFlow13 del-flows s1 'priority=100,ip'")
+            os.system("ovs-ofctl -O OpenFlow13 del-flows s1 'priority=90,ip'")
+            os.system("ovs-ofctl -O OpenFlow13 del-meters s1")
+            return {"message": "Traffic stopped and OpenFlow demo state cleared"}
 
         raise ValueError(f"Unsupported action: {action}")
 
     def host(self, name):
         return self.server.net.get(name)
 
-    def ensure_iperf_server(self):
-        h5 = self.host("h5")
-        h5.cmd(
-            "pgrep -f 'iperf -s -u' >/dev/null || "
-            "iperf -s -u > /tmp/h5_iperf_server.log 2>&1 &"
+    def ensure_iperf_servers(self):
+        for name in HOST_NAMES:
+            self.host(name).cmd(
+                "pgrep -f 'iperf -s -u' >/dev/null || "
+                f"iperf -s -u > /tmp/{name}_iperf_server.log 2>&1 &"
+            )
+
+    def stop_clients(self):
+        for name in HOST_NAMES:
+            host = self.host(name)
+            host.cmd("pkill -f 'iperf -u -c' || true")
+            host.cmd("pkill -f ping || true")
+
+    def start_udp_client(self, src, dst, rate, label):
+        self.host(src).cmd(
+            f"iperf -u -c {HOSTS[dst]} -b {rate} -t {TRAFFIC_DURATION_SECONDS} "
+            f"> /tmp/{src}_{label}.log 2>&1 &"
         )
 
     def start_normal(self):
-        self.ensure_iperf_server()
-        self.host("h2").cmd("ping -i 0.5 10.0.0.5 > /tmp/h2_ping.log 2>&1 &")
-        self.host("h3").cmd(
-            "iperf -u -c 10.0.0.5 -b 1M -t 60 > /tmp/h3_iperf.log 2>&1 &"
-        )
-        self.host("h4").cmd(
-            "iperf -u -c 10.0.0.5 -b 750K -t 60 > /tmp/h4_iperf.log 2>&1 &"
-        )
-        return {"message": "Normal traffic started"}
+        self.stop_clients()
+        self.ensure_iperf_servers()
+        cycle = HOST_NAMES[:]
+        random.shuffle(cycle)
+        flows = []
+        for index, src in enumerate(cycle):
+            dst = cycle[(index + 1) % len(cycle)]
+            rate = NORMAL_RATES[index % len(NORMAL_RATES)]
+            self.start_udp_client(src, dst, rate, "normal")
+            flows.append(f"{src}->{dst}")
+        return {
+            "message": f"Normal traffic started across {', '.join(flows)}",
+            "flows": flows,
+        }
 
-    def start_attack(self):
-        self.ensure_iperf_server()
-        self.host("h1").cmd(
-            "iperf -u -c 10.0.0.5 -b 100M -t 60 > /tmp/h1_attack.log 2>&1 &"
-        )
-        return {"message": f"Attack traffic started from {ATTACKER_IP} to {VICTIM_IP}"}
+    def start_single_source_flood(self):
+        self.stop_clients()
+        self.ensure_iperf_servers()
+        attacker, victim = random.sample(HOST_NAMES, 2)
+        self.start_udp_client(attacker, victim, SINGLE_SOURCE_FLOOD_RATE, "single_source_flood")
+        return {
+            "message": f"Single-source flood started from {attacker} to {victim}",
+            "attacker": attacker,
+            "victim": victim,
+            "attacker_ip": HOSTS[attacker],
+            "victim_ip": HOSTS[victim],
+        }
+
+    def start_multi_source_flood(self):
+        self.stop_clients()
+        self.ensure_iperf_servers()
+        victim = random.choice(HOST_NAMES)
+        candidates = [name for name in HOST_NAMES if name != victim]
+        attackers = random.sample(candidates, 3)
+        standby = sorted(set(candidates) - set(attackers))
+        for attacker in attackers:
+            self.start_udp_client(attacker, victim, MULTI_SOURCE_FLOOD_RATE, "multi_source_flood")
+        return {
+            "message": (
+                "Multi-source flood started from "
+                f"{', '.join(attackers)} to {victim}"
+            ),
+            "attackers": attackers,
+            "victim": victim,
+            "attacker_ips": [HOSTS[name] for name in attackers],
+            "victim_ip": HOSTS[victim],
+            "standby_hosts": standby,
+        }
 
     def stop_traffic(self):
-        for name in ["h1", "h2", "h3", "h4", "h5"]:
+        for name in HOST_NAMES:
             host = self.host(name)
             host.cmd("pkill -f iperf || true")
             host.cmd("pkill -f ping || true")
@@ -150,8 +198,9 @@ def main():
     for switch in net.switches:
         switch.cmd(f"ovs-vsctl set bridge {switch.name} protocols=OpenFlow13")
 
-    info("*** Starting victim iperf UDP server\n")
-    net.get("h5").cmd("iperf -s -u > /tmp/h5_iperf_server.log 2>&1 &")
+    info("*** Starting host iperf UDP servers\n")
+    for name in HOST_NAMES:
+        net.get(name).cmd(f"iperf -s -u > /tmp/{name}_iperf_server.log 2>&1 &")
 
     server = start_command_server(net)
 

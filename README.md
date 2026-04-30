@@ -18,7 +18,7 @@ FastAPI Backend
 Mininet/Ryu/OVS
 ```
 
-Ryu monitors OpenFlow flow stats, detects high-rate `h1 -> h5` traffic, installs a high-priority drop rule on `s1`, and writes runtime state to JSON files read by FastAPI.
+Ryu monitors OpenFlow flow stats, detects randomized flooding behavior, installs drop rules for clear single-source floods, installs OpenFlow 1.3 meters for multi-source floods, and writes runtime state to JSON files read by FastAPI.
 
 ## Install
 
@@ -96,23 +96,60 @@ Example result:
 
 <img width="972" height="47" alt="image" src="https://github.com/user-attachments/assets/7fad2f71-3267-40af-884b-eb51aeacfc1c" />
 
+To inspect rate-limit meters after a multi-source flood:
+
+```bash
+# Run this command in a terminal in your VM, not your local machine
+sudo ovs-ofctl -O OpenFlow13 dump-meters s1
+sudo ovs-ofctl -O OpenFlow13 meter-stats s1
+```
+
 ## Demo Flow
 
 1. Start all services.
 2. Open the dashboard.
 3. Click `Start Normal Traffic`.
-4. Normal hosts show low-rate green activity.
-5. Click `Start Attack Traffic`.
-6. `h1` sends high-rate UDP traffic to `h5`.
-7. Ryu detects the high packet rate.
-8. Ryu installs:
+4. All hosts begin with the `normal` role and send low-rate randomized traffic in a balanced cycle.
+5. Click `Start Single-Source Flood`.
+6. Mininet randomly chooses one attacker and one distinct victim.
+7. Ryu detects the high source-to-destination packet rate.
+8. Ryu installs a high-priority drop rule for the attacking flow:
 
 ```text
-priority=100, ip, nw_src=10.0.0.1, nw_dst=10.0.0.5, actions=drop
+priority=100, ip, nw_src=<attacker_ip>, nw_dst=<victim_ip>, actions=drop
 ```
 
-9. The dashboard shows the alert, blocked attacker status, and active drop rule.
-10. Click `Reset Demo` to clear temporary state and mitigation visibility.
+9. The dashboard shows the alert, blocked attacker status, protected victim status, and active drop rule.
+10. Click `Reset Demo`.
+11. Click `Start Multi-Source Flood`.
+12. Mininet randomly chooses one victim and three attacking sources.
+13. Ryu detects multiple moderate-rate sources targeting the same victim.
+14. Ryu installs OpenFlow 1.3 meters and meter-backed forwarding rules:
+
+```text
+meter=<meter_id>,actions=output:<port>
+```
+
+15. The dashboard shows rate-limited attackers, the attacked victim, active meter rules, and meter counters.
+16. Click `Stop Traffic` or `Reset Demo` to clear temporary runtime state.
+
+## VM Smoke Test
+
+This project is tested in a Linux VM at `172.16.64.133`.
+
+```bash
+ssh jonathan@172.16.64.133
+```
+
+Mininet and Open vSwitch commands must run inside the VM and require `sudo`. For the `jonathan` VM account, the sudo password is `jonathan`.
+
+Manual smoke test:
+
+1. Start Ryu, Mininet, backend, and frontend in the VM.
+2. Trigger normal traffic and verify all hosts show low activity with no mitigation.
+3. Trigger single-source flood multiple times and verify attacker/victim vary, IDS installs a drop rule, and the dashboard marks the attacker blocked.
+4. Trigger multi-source flood multiple times and verify victim varies, `ovs-ofctl -O OpenFlow13 dump-meters s1` shows meters, and flow rules show meter actions.
+5. Verify `Stop Traffic`, `Reset Demo`, and `Refresh Flow Table` still work.
 
 ## API
 
@@ -122,8 +159,10 @@ GET  /api/status
 GET  /api/stats
 GET  /api/alerts
 GET  /api/flows
+GET  /api/meters
 POST /api/traffic/normal/start
-POST /api/traffic/attack/start
+POST /api/demo/single-source-flood/start
+POST /api/demo/multi-source-flood/start
 POST /api/traffic/stop
 POST /api/reset
 POST /api/flows/refresh
@@ -137,7 +176,8 @@ Supported JSON commands:
 
 ```json
 {"action": "start_normal"}
-{"action": "start_attack"}
+{"action": "start_single_source_flood"}
+{"action": "start_multi_source_flood"}
 {"action": "stop_traffic"}
 {"action": "reset"}
 ```

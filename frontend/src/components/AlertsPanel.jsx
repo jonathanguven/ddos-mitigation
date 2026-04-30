@@ -15,12 +15,23 @@ function AlertsPanel({ alerts }) {
               key={`${alert.time}-${index}`}
             >
               <time>{alert.time}</time>
-              <span>{alert.message}</span>
+              <span>
+                {alert.mitigation && (
+                  <strong className={`mitigation-label mitigation-${alert.mitigation}`}>
+                    {formatMitigation(alert.mitigation)}
+                  </strong>
+                )}
+                {alert.message}
+              </span>
             </article>
           ))}
       </div>
     </section>
   );
+}
+
+function formatMitigation(value) {
+  return value === "rate_limit" ? "RATE_LIMIT" : value.toUpperCase();
 }
 
 export default AlertsPanel;

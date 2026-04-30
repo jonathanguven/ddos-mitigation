@@ -5,12 +5,14 @@ import AlertsPanel from "./components/AlertsPanel.jsx";
 import ControlPanel from "./components/ControlPanel.jsx";
 import FlowRulesPanel from "./components/FlowRulesPanel.jsx";
 import HostStatsPanel from "./components/HostStatsPanel.jsx";
+import MeterPanel from "./components/MeterPanel.jsx";
 import MetricsChart from "./components/MetricsChart.jsx";
 import TopologyView from "./components/TopologyView.jsx";
 
 const emptyStats = { hosts: [], history: [] };
 const emptyAlerts = { alerts: [] };
 const emptyFlows = { flows: [], raw: [], error: null };
+const emptyMeters = { meters: [], raw: [], error: null };
 
 function App() {
   const [status, setStatus] = useState({
@@ -22,21 +24,24 @@ function App() {
   const [stats, setStats] = useState(emptyStats);
   const [alerts, setAlerts] = useState(emptyAlerts);
   const [flows, setFlows] = useState(emptyFlows);
+  const [meters, setMeters] = useState(emptyMeters);
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
 
   const refreshAll = useCallback(async () => {
     try {
-      const [nextStatus, nextStats, nextAlerts, nextFlows] = await Promise.all([
+      const [nextStatus, nextStats, nextAlerts, nextFlows, nextMeters] = await Promise.all([
         api.status(),
         api.stats(),
         api.alerts(),
         api.flows(),
+        api.meters(),
       ]);
       setStatus(nextStatus);
       setStats(nextStats);
       setAlerts(nextAlerts);
       setFlows(nextFlows);
+      setMeters(nextMeters);
       setError("");
     } catch (err) {
       setError(err.message);
@@ -68,10 +73,11 @@ function App() {
   const summary = useMemo(() => {
     const hosts = stats.hosts || [];
     const blocked = hosts.filter((host) => host.status === "blocked").length;
+    const rateLimited = hosts.filter((host) => host.status === "rate_limited").length;
     const active = hosts.filter((host) =>
       ["active", "receiving", "under_attack", "protected"].includes(host.status),
     ).length;
-    return { blocked, active };
+    return { blocked, rateLimited, active };
   }, [stats.hosts]);
 
   return (
@@ -103,12 +109,16 @@ function App() {
           <strong>{summary.blocked}</strong>
         </div>
         <div>
+          <span className="summary-label">Rate limited</span>
+          <strong>{summary.rateLimited}</strong>
+        </div>
+        <div>
           <span className="summary-label">Alerts</span>
           <strong>{alerts.alerts?.length || 0}</strong>
         </div>
         <div>
-          <span className="summary-label">Flow rules</span>
-          <strong>{flows.flows?.length || 0}</strong>
+          <span className="summary-label">Meters</span>
+          <strong>{meters.meters?.length || 0}</strong>
         </div>
       </section>
 
@@ -121,8 +131,11 @@ function App() {
           onStartNormal={() =>
             runAction("normal", api.startNormalTraffic)
           }
-          onStartAttack={() =>
-            runAction("attack", api.startAttackTraffic)
+          onStartSingleSource={() =>
+            runAction("single-source", api.startSingleSourceFlood)
+          }
+          onStartMultiSource={() =>
+            runAction("multi-source", api.startMultiSourceFlood)
           }
           onStop={() => runAction("stop", api.stopTraffic)}
           onReset={() => runAction("reset", api.resetDemo)}
@@ -130,6 +143,7 @@ function App() {
         />
         <MetricsChart history={stats.history || []} />
         <FlowRulesPanel flows={flows.flows || []} error={flows.error} raw={flows.raw || []} />
+        <MeterPanel meters={meters.meters || []} error={meters.error} raw={meters.raw || []} />
       </section>
     </main>
   );

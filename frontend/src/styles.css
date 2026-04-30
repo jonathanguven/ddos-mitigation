@@ -154,7 +154,12 @@ h2 {
 .dashboard-grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(360px, 1.05fr) minmax(320px, 0.95fr);
+  grid-template-areas:
+    "topology hosts"
+    "alerts controls"
+    "metrics metrics"
+    "flows flows";
+  grid-template-columns: minmax(520px, 1.05fr) minmax(420px, 0.95fr);
 }
 
 .panel {
@@ -180,6 +185,7 @@ h2 {
 }
 
 .topology-panel {
+  grid-area: topology;
   min-height: 560px;
 }
 
@@ -335,10 +341,29 @@ h2 {
   color: #27394b;
 }
 
-.host-panel,
+.host-panel {
+  grid-area: hosts;
+}
+
+.alerts-panel {
+  grid-area: alerts;
+}
+
+.control-panel {
+  grid-area: controls;
+}
+
 .metrics-panel,
 .flows-panel {
   grid-column: 1 / -1;
+}
+
+.metrics-panel {
+  grid-area: metrics;
+}
+
+.flows-panel {
+  grid-area: flows;
 }
 
 .table-wrap {
@@ -347,7 +372,7 @@ h2 {
 
 table {
   border-collapse: collapse;
-  min-width: 760px;
+  min-width: 640px;
   width: 100%;
 }
 
@@ -525,7 +550,7 @@ th {
   padding: 12px;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1100px) {
   .app-header {
     display: grid;
   }
@@ -539,6 +564,13 @@ th {
   }
 
   .dashboard-grid {
+    grid-template-areas:
+      "topology"
+      "hosts"
+      "alerts"
+      "controls"
+      "metrics"
+      "flows";
     grid-template-columns: 1fr;
   }
 }

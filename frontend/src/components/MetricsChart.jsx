@@ -9,8 +9,11 @@ import {
   YAxis,
 } from "recharts";
 
+const CHART_WINDOW_SECONDS = 60;
+
 function MetricsChart({ history }) {
-  const data = (history.length ? history : [emptyPoint()]).map((point) => ({
+  const visibleHistory = filterRecentHistory(history, CHART_WINDOW_SECONDS);
+  const data = (visibleHistory.length ? visibleHistory : [emptyPoint()]).map((point) => ({
     time: point.time,
     packets: point.packet_rate || 0,
     mbps: bytesToMbps(point.byte_rate || 0),
@@ -21,6 +24,7 @@ function MetricsChart({ history }) {
     <section className="panel metrics-panel">
       <div className="panel-heading">
         <h2>Metrics</h2>
+        <span className="panel-meta">Last 1 min</span>
       </div>
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height={270}>
@@ -74,6 +78,45 @@ function MetricsChart({ history }) {
       </div>
     </section>
   );
+}
+
+function filterRecentHistory(history, windowSeconds) {
+  if (!history.length) {
+    return [];
+  }
+
+  const latestSeconds = clockToSeconds(history[history.length - 1].time);
+  if (latestSeconds === null) {
+    return history.slice(-30);
+  }
+
+  return history.filter((point) => {
+    const pointSeconds = clockToSeconds(point.time);
+    if (pointSeconds === null) {
+      return false;
+    }
+
+    let ageSeconds = latestSeconds - pointSeconds;
+    if (ageSeconds < 0) {
+      ageSeconds += 24 * 60 * 60;
+    }
+
+    return ageSeconds <= windowSeconds;
+  });
+}
+
+function clockToSeconds(clock) {
+  if (typeof clock !== "string") {
+    return null;
+  }
+
+  const parts = clock.split(":").map(Number);
+  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) {
+    return null;
+  }
+
+  const [hours, minutes, seconds] = parts;
+  return hours * 60 * 60 + minutes * 60 + seconds;
 }
 
 function bytesToMbps(bytesPerSecond) {

@@ -11,8 +11,11 @@ Working demo system for:
 ## Architecture
 
 ```text
-Frontend Dashboard -> FastAPI Backend -> Mininet/Ryu/OVS
-                                    \-> /tmp/sdn_ids_*.json
+Frontend Dashboard
+      ↓
+FastAPI Backend
+      ↓
+Mininet/Ryu/OVS
 ```
 
 Ryu monitors OpenFlow flow stats, detects high-rate `h1 -> h5` traffic, installs a high-priority drop rule on `s1`, and writes runtime state to JSON files read by FastAPI.
@@ -23,7 +26,7 @@ Run on a Linux VM or host with Mininet/Open vSwitch support.
 
 ```bash
 sudo apt update
-sudo apt install mininet openvswitch-switch iperf python3-pip nodejs npm tmux
+sudo apt install mininet openvswitch-switch iperf python3-pip nodejs npm
 pip install ryu fastapi uvicorn
 ```
 
@@ -36,56 +39,47 @@ npm install
 
 ## Run Everything
 
-```bash
-scripts/start_all.sh
-```
+Start these commands in separate terminals (In your VM):
 
-With `tmux` installed, this opens panes for Ryu, Mininet, FastAPI, and Vite.
-
-Frontend:
-
-```text
-http://localhost:5173
-```
-
-Backend health:
-
-```text
-http://localhost:8000/api/health
-```
-
-## Run Manually
-
-Run Ryu:
-
+- Start Ryu controller
 ```bash
 ryu-manager --ofp-tcp-listen-port 6653 ryu_app/ids_controller.py
 ```
 
-Run Mininet:
-
+- Initialize Mininet topology
 ```bash
 sudo python3 mininet/topology.py
 ```
 
-Run Backend:
-
+- Initialize backend server
 ```bash
 cd backend
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Run Frontend:
-
+- Initialize frontend dashboard
 ```bash
 cd frontend
-npm install
-npm run dev
+npm install && npm run dev -- --host 0.0.0.0
 ```
 
-Verify OpenFlow:
+### Frontend Access
+Since the servers run on Linux Virtual Machines, the frontend server can be accessed at:
+`http://<INSERT_VM_IP_ADDRESS>:5173`
+
+The backend server can be accessed at:
+`http://<INSERT_VM_IP_ADDRESS>/api/health`
+
+For example, given the ssh connection settings for my virtual machine:
+
+
+My frontend and backend servers can be accessed at `http://172.16.64.133:5173` and `http://172.16.64.133/api/health` respectively.
+
+
+## Verify OpenFlow:
 
 ```bash
+# Run this command in a terminal in your VM, not your local machine
 sudo ovs-ofctl -O OpenFlow13 dump-flows s1
 ```
 

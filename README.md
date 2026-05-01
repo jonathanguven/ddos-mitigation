@@ -49,6 +49,8 @@ Fill in the value of `VITE_API_BASE_URL` with your VM's IP Address
 
 Start these commands in separate terminals (In your VM):
 
+- Enable sudo access for the current session (this allows the backend to run `ovs-ofctl` commands remotely)
+
 - Start Ryu controller
 ```bash
 ryu-manager --ofp-tcp-listen-port 6653 ryu_app/ids_controller.py

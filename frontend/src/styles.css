@@ -191,6 +191,60 @@ h2 {
   font-size: 0.82rem;
 }
 
+.flow-heading-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.flow-filter-toggle {
+  background: #ffffff;
+  border: 1px solid #d7dde5;
+  border-radius: 8px;
+  color: #27394b;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 800;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.flow-filter-toggle:hover {
+  border-color: #8aa0b6;
+}
+
+.metrics-heading-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.metrics-paused {
+  color: #9d2525;
+  font-weight: 800;
+}
+
+.metrics-freeze-toggle {
+  background: #ffffff;
+  border: 1px solid #d7dde5;
+  border-radius: 8px;
+  color: #27394b;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 800;
+  min-height: 32px;
+  min-width: 78px;
+  padding: 6px 10px;
+}
+
+.metrics-freeze-toggle:hover {
+  border-color: #8aa0b6;
+}
+
 .topology-panel {
   grid-area: topology;
   min-height: 560px;
@@ -451,6 +505,16 @@ th {
   gap: 10px;
 }
 
+.flow-filter-note {
+  background: #f4f7fb;
+  border: 1px dashed #c8d2dd;
+  border-radius: 8px;
+  color: #657586;
+  font-size: 0.86rem;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
 .alert-row {
   border-left: 4px solid #8aa0b6;
   display: grid;
@@ -500,6 +564,28 @@ th {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+}
+
+.flow-title {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.flow-order {
+  align-items: center;
+  background: #e9eef5;
+  border-radius: 6px;
+  color: #27394b;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  font-weight: 900;
+  justify-content: center;
+  min-width: 34px;
+  padding: 3px 6px;
 }
 
 .drop-action,

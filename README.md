@@ -14,11 +14,11 @@ Working demo system for:
 Frontend Dashboard
       ↓
 FastAPI Backend
-      ↓
-Mininet/Ryu/OVS
+      ├─ Ryu WSGI REST API (:8080) for controller-owned SDN state
+      └─ Mininet command server (127.0.0.1:9001) for demo traffic
 ```
 
-Ryu monitors OpenFlow flow stats, detects randomized flooding behavior, installs drop rules for clear single-source floods, installs OpenFlow 1.3 meters for multi-source floods, and writes runtime state to JSON files read by FastAPI.
+Ryu monitors OpenFlow flow stats, detects randomized flooding behavior, installs drop rules for clear single-source floods, installs OpenFlow 1.3 meters for multi-source floods, and exposes controller-owned runtime state through its native WSGI REST API. FastAPI keeps the React API origin stable, proxies Ryu state, and owns Mininet/demo orchestration.
 
 ## Install
 
@@ -184,15 +184,22 @@ Supported JSON commands:
 {"action": "reset"}
 ```
 
-FastAPI sends these commands when the dashboard buttons are clicked. If the command server is not running, the backend writes synthetic fallback state so the dashboard can still be previewed.
+FastAPI sends these commands when the dashboard buttons are clicked. If the command server or Ryu WSGI API is not running, the backend keeps synthetic fallback state in memory so the dashboard can still be previewed.
 
-## State Files
+## Ryu WSGI API
 
 ```text
-/tmp/sdn_ids_stats.json
-/tmp/sdn_ids_alerts.json
-/tmp/sdn_ids_state.json
+GET  /ryu/status
+GET  /ryu/stats
+GET  /ryu/alerts
+GET  /ryu/datapaths
+GET  /ryu/flows
+GET  /ryu/meters
+GET  /ryu/mitigations
+POST /ryu/reset-controller-state
 ```
+
+FastAPI calls these endpoints on `http://127.0.0.1:8080` by default. Override the target with `RYU_REST_BASE_URL` if Ryu is exposed elsewhere.
 
 ## Stop
 

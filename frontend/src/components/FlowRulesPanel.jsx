@@ -10,7 +10,7 @@ function FlowRulesPanel({ flows, error, raw }) {
       <div className="panel-heading">
         <h2>OpenFlow Rules</h2>
         <div className="flow-heading-actions">
-          <span className="panel-meta">ovs-ofctl dump-flows s1</span>
+          <span className="panel-meta">Ryu flow stats</span>
           {flows.length > 0 && (
             <button
               className="flow-filter-toggle"

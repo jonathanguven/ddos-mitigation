@@ -44,7 +44,12 @@ function MetricsChart({ history }) {
         <ResponsiveContainer width="100%" height={270}>
           <LineChart data={data} margin={{ top: 12, right: 20, left: 0, bottom: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#d7dde5" />
-            <XAxis dataKey="time" tick={{ fontSize: 12 }} minTickGap={22} />
+            <XAxis
+              dataKey="time"
+              tick={{ fontSize: 12 }}
+              minTickGap={22}
+              tickFormatter={formatTickTime}
+            />
             <YAxis
               yAxisId="packets"
               tick={{ fontSize: 12 }}
@@ -67,6 +72,7 @@ function MetricsChart({ history }) {
               stroke="#d23b3b"
               strokeWidth={2}
               dot={false}
+              isAnimationActive={false}
               name="packet rate"
             />
             <Line
@@ -76,6 +82,7 @@ function MetricsChart({ history }) {
               stroke="#1f7a5a"
               strokeWidth={2}
               dot={false}
+              isAnimationActive={false}
               name="byte rate"
             />
             <Line
@@ -85,6 +92,7 @@ function MetricsChart({ history }) {
               stroke="#2456a6"
               strokeWidth={2}
               dot={false}
+              isAnimationActive={false}
               name="victim throughput"
             />
           </LineChart>
@@ -144,6 +152,10 @@ function clockToSeconds(clock) {
 
 function bytesToMbps(bytesPerSecond) {
   return Number(((bytesPerSecond * 8) / 1_000_000).toFixed(2));
+}
+
+function formatTickTime(clock) {
+  return typeof clock === "string" ? clock.split(".")[0] : clock;
 }
 
 function emptyPoint() {

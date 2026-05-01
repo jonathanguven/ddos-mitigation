@@ -16,7 +16,7 @@ from ryu.lib.packet import ether_types, ethernet, ipv4, packet
 from ryu.ofproto import ofproto_v1_3
 
 
-MONITOR_INTERVAL = 2
+MONITOR_INTERVAL = 0.5
 
 SINGLE_SOURCE_DROP_THRESHOLD = 5000
 MULTI_SOURCE_MIN_RATE = 300
@@ -36,6 +36,10 @@ HOSTS = {
     "10.0.0.4": {"host": "h4", "role": "normal"},
     "10.0.0.5": {"host": "h5", "role": "normal"},
 }
+
+
+def current_clock_ms():
+    return f"{time.strftime('%H:%M:%S')}.{int((time.time() % 1) * 1000):03d}"
 
 
 class IdsController(app_manager.RyuApp):
@@ -281,7 +285,7 @@ class IdsController(app_manager.RyuApp):
             self.demo_state = "idle"
         self.metrics.append(
             {
-                "time": time.strftime("%H:%M:%S"),
+                "time": current_clock_ms(),
                 "packet_rate": round(total_packet_rate),
                 "byte_rate": round(total_byte_rate),
                 "victim_throughput": round(

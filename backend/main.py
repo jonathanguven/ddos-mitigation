@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import mininet_manager
-import ovs_reader
+import ryu_client
 import state_store
 import traffic_manager
 
@@ -25,9 +25,12 @@ def health():
 
 @app.get("/api/status")
 def status():
-    state = state_store.get_status()
-    state["ryu_running"] = state["ryu_running"] or mininet_manager.ryu_running()
-    state["mininet_running"] = state["mininet_running"] or mininet_manager.mininet_running()
+    try:
+        state = ryu_client.get("/ryu/status")
+    except ryu_client.RyuUnavailable:
+        state = state_store.get_status()
+    state["ryu_running"] = bool(state.get("ryu_running")) or mininet_manager.ryu_running()
+    state["mininet_running"] = bool(state.get("mininet_running")) or mininet_manager.mininet_running()
     return state
 
 
@@ -58,24 +61,40 @@ def reset_demo():
 
 @app.get("/api/stats")
 def stats():
-    return state_store.get_stats()
+    try:
+        return ryu_client.get("/ryu/stats")
+    except ryu_client.RyuUnavailable:
+        return state_store.get_stats()
 
 
 @app.get("/api/alerts")
 def alerts():
-    return state_store.get_alerts()
+    try:
+        ryu_alerts = ryu_client.get("/ryu/alerts")
+    except ryu_client.RyuUnavailable:
+        return state_store.get_alerts()
+
+    fallback_alerts = state_store.get_alerts().get("alerts", [])
+    alerts = [*fallback_alerts, *ryu_alerts.get("alerts", [])][-100:]
+    return {"alerts": alerts}
 
 
 @app.get("/api/flows")
 def flows():
-    return ovs_reader.get_flows()
+    try:
+        return ryu_client.get("/ryu/flows")
+    except ryu_client.RyuUnavailable as exc:
+        return {"flows": [], "raw": [], "error": ryu_client.fallback_error(exc)}
 
 
 @app.get("/api/meters")
 def meters():
-    return ovs_reader.get_meters()
+    try:
+        return ryu_client.get("/ryu/meters")
+    except ryu_client.RyuUnavailable as exc:
+        return {"meters": [], "raw": [], "error": ryu_client.fallback_error(exc)}
 
 
 @app.post("/api/flows/refresh")
 def refresh_flows():
-    return ovs_reader.get_flows()
+    return flows()

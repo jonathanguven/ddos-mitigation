@@ -1,22 +1,14 @@
-"""Shared state helpers for the FastAPI demo backend.
+"""In-memory fallback state for the FastAPI demo backend.
 
-Ryu is the authoritative producer when it is running. These helpers also keep a
-small synthetic fallback state so the React dashboard remains useful before the
-Linux SDN stack is started.
+Ryu is the source of truth when its WSGI API is reachable. These helpers keep
+the dashboard previewable when Ryu or Mininet is not running, without writing
+controller-like state through /tmp files.
 """
 
-import json
-import os
 import random
 import time
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-
-STATS_FILE = Path("/tmp/sdn_ids_stats.json")
-ALERTS_FILE = Path("/tmp/sdn_ids_alerts.json")
-STATE_FILE = Path("/tmp/sdn_ids_state.json")
-RESET_FILE = Path("/tmp/sdn_ids_reset.signal")
 
 HOSTS = [
     {"host": "h1", "ip": "10.0.0.1", "role": "normal"},
@@ -26,6 +18,10 @@ HOSTS = [
     {"host": "h5", "ip": "10.0.0.5", "role": "normal"},
 ]
 HOST_IP_BY_NAME = {host["host"]: host["ip"] for host in HOSTS}
+
+_status: dict[str, Any] = {}
+_stats: dict[str, Any] = {}
+_alerts: list[dict[str, Any]] = []
 
 
 def now_iso() -> str:
@@ -67,67 +63,44 @@ def normalize_host_role(host: dict[str, Any]) -> dict[str, Any]:
     return {**host, "role": role}
 
 
-def read_json(path: Path, default: Any) -> Any:
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return default
-
-
-def atomic_write(path: Path, payload: Any) -> None:
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
-    os.replace(tmp_path, path)
-
-
 def get_status() -> dict[str, Any]:
-    state = read_json(STATE_FILE, {})
     return {
-        "demo_state": state.get("demo_state", "idle"),
-        "ryu_running": bool(state.get("ryu_running", False)),
-        "mininet_running": bool(state.get("mininet_running", False)),
-        "last_updated": state.get("last_updated", now_iso()),
+        "demo_state": _status.get("demo_state", "idle"),
+        "ryu_running": bool(_status.get("ryu_running", False)),
+        "mininet_running": bool(_status.get("mininet_running", False)),
+        "last_updated": _status.get("last_updated", now_iso()),
     }
 
 
 def update_status(**updates: Any) -> dict[str, Any]:
-    state = get_status()
-    state.update(updates)
-    state["last_updated"] = now_iso()
-    atomic_write(STATE_FILE, state)
-    return state
+    _status.update(get_status())
+    _status.update(updates)
+    _status["last_updated"] = now_iso()
+    return get_status()
 
 
 def get_stats() -> dict[str, Any]:
-    stats = read_json(STATS_FILE, {})
-    hosts = stats.get("hosts") if isinstance(stats, dict) else None
+    hosts = _stats.get("hosts")
     if not isinstance(hosts, list):
         hosts = default_hosts()
     else:
         hosts = [normalize_host_role(host) for host in hosts]
     return {
         "hosts": hosts,
-        "history": stats.get("history", []) if isinstance(stats, dict) else [],
-        "last_updated": stats.get("last_updated", now_iso()) if isinstance(stats, dict) else now_iso(),
+        "history": _stats.get("history", []),
+        "last_updated": _stats.get("last_updated", now_iso()),
     }
 
 
 def get_alerts() -> dict[str, Any]:
-    payload = read_json(ALERTS_FILE, {})
-    alerts = payload.get("alerts") if isinstance(payload, dict) else payload
-    if not isinstance(alerts, list):
-        alerts = []
-    return {"alerts": alerts[-100:]}
+    return {"alerts": _alerts[-100:]}
 
 
 def append_alert(level: str, message: str, **fields: Any) -> dict[str, Any]:
-    payload = get_alerts()
     alert = {"time": now_clock(), "level": level, "message": message, **fields}
-    if not payload["alerts"] or payload["alerts"][-1].get("message") != message:
-        payload["alerts"].append(alert)
-    atomic_write(ALERTS_FILE, {"alerts": payload["alerts"][-100:]})
+    if not _alerts or _alerts[-1].get("message") != message:
+        _alerts.append(alert)
+        del _alerts[:-100]
     return alert
 
 
@@ -136,17 +109,18 @@ def write_stats(
     point: Optional[dict[str, Any]] = None,
     reset_history: bool = False,
 ) -> dict[str, Any]:
-    existing = {} if reset_history else get_stats()
-    history = existing.get("history", [])
+    history = [] if reset_history else list(_stats.get("history", []))
     if point:
         history = [*history, point][-120:]
-    payload = {
-        "hosts": hosts,
-        "history": history,
-        "last_updated": now_iso(),
-    }
-    atomic_write(STATS_FILE, payload)
-    return payload
+    _stats.clear()
+    _stats.update(
+        {
+            "hosts": hosts,
+            "history": history,
+            "last_updated": now_iso(),
+        }
+    )
+    return get_stats()
 
 
 def synthetic_normal_state() -> None:
@@ -193,12 +167,7 @@ def synthetic_single_source_flood_state() -> None:
                 role="attacker",
             )
         elif host["host"] == victim:
-            host.update(
-                packet_rate=0,
-                byte_rate=0,
-                status="protected",
-                role="victim",
-            )
+            host.update(packet_rate=0, byte_rate=0, status="protected", role="victim")
     write_stats(
         hosts,
         {
@@ -278,11 +247,7 @@ def synthetic_stop_state() -> None:
 
 
 def reset_state() -> None:
-    try:
-        RESET_FILE.write_text(now_iso(), encoding="utf-8")
-    except OSError:
-        pass
-    atomic_write(ALERTS_FILE, {"alerts": []})
+    _alerts.clear()
     write_stats(
         default_hosts(),
         {

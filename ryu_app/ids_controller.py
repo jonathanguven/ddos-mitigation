@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """Ryu OpenFlow 1.3 learning switch with IDS detection and mitigation."""
 
-import json
-import os
 import time
 from collections import defaultdict, deque
-from pathlib import Path
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -13,7 +10,9 @@ from ryu.controller.handler import CONFIG_DISPATCHER, DEAD_DISPATCHER, MAIN_DISP
 from ryu.controller.handler import set_ev_cls
 from ryu.lib import hub
 from ryu.lib.packet import ether_types, ethernet, ipv4, packet
+from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 from ryu.ofproto import ofproto_v1_3
+from webob import Response
 
 
 MONITOR_INTERVAL = 0.5
@@ -24,10 +23,7 @@ MULTI_SOURCE_SOURCE_COUNT = 3
 METER_RATE_KBPS = 1000
 METER_BURST_SIZE = 100
 
-STATS_FILE = Path("/tmp/sdn_ids_stats.json")
-ALERTS_FILE = Path("/tmp/sdn_ids_alerts.json")
-STATE_FILE = Path("/tmp/sdn_ids_state.json")
-RESET_FILE = Path("/tmp/sdn_ids_reset.signal")
+IDS_INSTANCE_NAME = "ids_controller_app"
 
 HOSTS = {
     "10.0.0.1": {"host": "h1", "role": "normal"},
@@ -42,26 +38,45 @@ def current_clock_ms():
     return f"{time.strftime('%H:%M:%S')}.{int((time.time() % 1) * 1000):03d}"
 
 
+def current_iso():
+    return time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def json_response(payload, status=200):
+    import json
+
+    return Response(
+        content_type="application/json",
+        status=status,
+        body=json.dumps(payload).encode("utf-8"),
+    )
+
+
 class IdsController(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
+    _CONTEXTS = {"wsgi": WSGIApplication}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        wsgi = kwargs["wsgi"]
         self.mac_to_port = {}
         self.ip_to_mac = {}
         self.datapaths = {}
         self.flow_stats = {}
+        self.latest_flows = {}
         self.mitigated = {}
         self.meter_ids = {}
+        self.meter_configs = {}
+        self.meter_stats = {}
         self.next_meter_id = 1
         self.installed_meters = set()
-        self.last_reset_signal = 0
         self.demo_state = "idle"
         self.alerts = deque(maxlen=100)
         self.metrics = deque(maxlen=120)
         self.host_stats = self._initial_host_stats()
+        self.last_updated = current_iso()
+        wsgi.register(IdsRestController, {IDS_INSTANCE_NAME: self})
         self.monitor_thread = hub.spawn(self._monitor)
-        self._write_all_state(merge_alerts=False)
 
     def _initial_host_stats(self):
         return {
@@ -98,7 +113,12 @@ class IdsController(app_manager.RyuApp):
             self.datapaths[datapath.id] = datapath
         elif ev.state == DEAD_DISPATCHER:
             self.datapaths.pop(datapath.id, None)
-        self._write_all_state()
+            self.latest_flows = {
+                key: flow
+                for key, flow in self.latest_flows.items()
+                if key[0] != datapath.id
+            }
+        self._touch()
 
     def add_flow(self, datapath, priority, match, actions, idle_timeout=0, hard_timeout=0):
         parser = datapath.ofproto_parser
@@ -169,16 +189,25 @@ class IdsController(app_manager.RyuApp):
 
     def _monitor(self):
         while True:
-            self._handle_reset_signal()
             self._expire_mitigation_state()
             for datapath in list(self.datapaths.values()):
                 self._request_stats(datapath)
-            self._write_all_state()
+                self._request_meter_stats(datapath)
+            self._touch()
             hub.sleep(MONITOR_INTERVAL)
 
     def _request_stats(self, datapath):
         parser = datapath.ofproto_parser
         req = parser.OFPFlowStatsRequest(datapath)
+        datapath.send_msg(req)
+
+    def _request_meter_stats(self, datapath):
+        parser = datapath.ofproto_parser
+        ofproto = datapath.ofproto
+        try:
+            req = parser.OFPMeterStatsRequest(datapath, 0, ofproto.OFPM_ALL)
+        except TypeError:
+            req = parser.OFPMeterStatsRequest(datapath, meter_id=ofproto.OFPM_ALL)
         datapath.send_msg(req)
 
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
@@ -190,7 +219,14 @@ class IdsController(app_manager.RyuApp):
         total_byte_rate = 0
         victim_rates = defaultdict(lambda: {"packet_rate": 0, "byte_rate": 0})
         victim_sources = defaultdict(set)
+        latest_flow_keys = set()
         for stat in ev.msg.body:
+            flow = self._serialize_flow_stat(datapath.id, stat)
+            if not self._is_table_miss_flow(flow):
+                flow_key_for_table = (datapath.id, flow["priority"], flow["match"], flow["actions"])
+                self.latest_flows[flow_key_for_table] = flow
+                latest_flow_keys.add(flow_key_for_table)
+
             match = self._match_to_dict(stat.match)
             src_ip = match.get("ipv4_src")
             dst_ip = match.get("ipv4_dst")
@@ -293,7 +329,25 @@ class IdsController(app_manager.RyuApp):
                 ),
             }
         )
-        self._write_all_state()
+        self.latest_flows = {
+            key: flow
+            for key, flow in self.latest_flows.items()
+            if key[0] != datapath.id or key in latest_flow_keys
+        }
+        self._touch()
+
+    @set_ev_cls(ofp_event.EventOFPMeterStatsReply, MAIN_DISPATCHER)
+    def meter_stats_reply_handler(self, ev):
+        datapath = ev.msg.datapath
+        for stat in ev.msg.body:
+            meter_id = getattr(stat, "meter_id", None)
+            if meter_id is None:
+                continue
+            self.meter_stats[(datapath.id, meter_id)] = {
+                "packet_count": int(getattr(stat, "packet_in_count", 0) or 0),
+                "byte_count": int(getattr(stat, "byte_in_count", 0) or 0),
+            }
+        self._touch()
 
     def _evaluate_single_source(self, datapath, src_ip, dst_ip, packet_rate):
         key = (src_ip, dst_ip)
@@ -399,6 +453,11 @@ class IdsController(app_manager.RyuApp):
         if meter_key not in self.installed_meters:
             self.install_meter(datapath, meter_id, METER_RATE_KBPS)
             self.installed_meters.add(meter_key)
+            self.meter_configs[meter_key] = {
+                "meter_id": meter_id,
+                "rate_kbps": METER_RATE_KBPS,
+                "burst_size": METER_BURST_SIZE,
+            }
 
         match = parser.OFPMatch(
             eth_type=ether_types.ETH_TYPE_IP,
@@ -421,22 +480,16 @@ class IdsController(app_manager.RyuApp):
         datapath.send_msg(mod)
         return True
 
-    def _handle_reset_signal(self):
-        try:
-            reset_mtime = RESET_FILE.stat().st_mtime
-        except OSError:
-            return
-
-        if reset_mtime <= self.last_reset_signal:
-            return
-
-        self.last_reset_signal = reset_mtime
+    def reset_controller_state(self):
         self._reset_switch_state()
         self.mac_to_port.clear()
         self.ip_to_mac.clear()
         self.flow_stats.clear()
+        self.latest_flows.clear()
         self.mitigated.clear()
         self.meter_ids.clear()
+        self.meter_configs.clear()
+        self.meter_stats.clear()
         self.installed_meters.clear()
         self.next_meter_id = 1
         self.demo_state = "idle"
@@ -450,7 +503,8 @@ class IdsController(app_manager.RyuApp):
                 "message": "Demo reset",
             }
         )
-        self._write_all_state(merge_alerts=False)
+        self._touch()
+        return {"ok": True, "message": "Ryu controller state reset"}
 
     def _reset_switch_state(self):
         for datapath in list(self.datapaths.values()):
@@ -535,62 +589,193 @@ class IdsController(app_manager.RyuApp):
             self.alerts.append(alert)
         if level == "critical":
             self.demo_state = "mitigated"
-        self._write_all_state()
+        self._touch()
 
-    def _write_all_state(self, merge_alerts=True):
-        self._atomic_write(
-            STATS_FILE,
-            {
-                "hosts": list(self.host_stats.values()),
-                "history": list(self.metrics),
-                "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            },
+    def _touch(self):
+        self.last_updated = current_iso()
+
+    def get_status_payload(self):
+        return {
+            "demo_state": self.demo_state,
+            "ryu_running": True,
+            "mininet_running": bool(self.datapaths),
+            "last_updated": self.last_updated,
+        }
+
+    def get_stats_payload(self):
+        return {
+            "hosts": list(self.host_stats.values()),
+            "history": list(self.metrics),
+            "last_updated": self.last_updated,
+        }
+
+    def get_alerts_payload(self):
+        return {"alerts": list(self.alerts)[-100:]}
+
+    def get_datapaths_payload(self):
+        return {
+            "datapaths": [
+                {"id": dpid, "name": f"s{dpid}", "connected": True}
+                for dpid in sorted(self.datapaths)
+            ],
+            "last_updated": self.last_updated,
+        }
+
+    def get_flows_payload(self):
+        flows = sorted(
+            (dict(flow) for flow in self.latest_flows.values()),
+            key=lambda flow: (-flow["priority"], flow["switch"], flow["match"], flow["actions"]),
         )
-        self._atomic_write(ALERTS_FILE, {"alerts": self._alerts_for_write(merge_alerts)})
-        self._atomic_write(
-            STATE_FILE,
-            {
-                "demo_state": self.demo_state,
-                "ryu_running": True,
-                "mininet_running": bool(self.datapaths),
-                "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            },
+        for index, flow in enumerate(flows, start=1):
+            flow["table_order"] = index
+            flow["raw"] = self._flow_raw(flow)
+        return {"flows": flows, "raw": [flow["raw"] for flow in flows], "error": None}
+
+    def get_meters_payload(self):
+        meters = []
+        for (dpid, meter_id), config in sorted(self.meter_configs.items()):
+            stats = self.meter_stats.get((dpid, meter_id), {})
+            meter = {
+                "meter_id": int(meter_id),
+                "rate_kbps": int(config.get("rate_kbps", 0) or 0),
+                "burst_size": int(config.get("burst_size", 0) or 0),
+                "packet_count": int(stats.get("packet_count", 0) or 0),
+                "byte_count": int(stats.get("byte_count", 0) or 0),
+            }
+            meter["raw"] = self._meter_raw(meter)
+            meters.append(meter)
+        return {"meters": meters, "raw": [meter["raw"] for meter in meters], "error": None}
+
+    def get_mitigations_payload(self):
+        mitigations = []
+        for (src_ip, dst_ip), mitigation in sorted(self.mitigated.items()):
+            mitigations.append(
+                {
+                    "src_ip": src_ip,
+                    "dst_ip": dst_ip,
+                    "action": mitigation.get("action"),
+                    "type": mitigation.get("type"),
+                    "installed_at": mitigation.get("installed_at"),
+                }
+            )
+        return {"mitigations": mitigations, "last_updated": self.last_updated}
+
+    def _serialize_flow_stat(self, dpid, stat):
+        match = self._match_to_dict(stat.match)
+        actions = self._actions_to_string(stat)
+        flow = {
+            "switch": f"s{dpid}",
+            "priority": int(getattr(stat, "priority", 0) or 0),
+            "packets": int(getattr(stat, "packet_count", 0) or 0),
+            "bytes": int(getattr(stat, "byte_count", 0) or 0),
+            "match": self._match_to_string(match),
+            "actions": actions,
+            "meter_id": self._meter_id_from_stat(stat),
+            "status": "Active",
+            "raw": "",
+        }
+        flow["raw"] = self._flow_raw(flow)
+        return flow
+
+    def _match_to_string(self, match):
+        if not match:
+            return "all"
+        parts = []
+        if match.get("eth_type") == ether_types.ETH_TYPE_IP:
+            parts.append("ip")
+        for key in ("in_port", "eth_src", "eth_dst", "ipv4_src", "ipv4_dst"):
+            if key in match:
+                display_key = {"ipv4_src": "nw_src", "ipv4_dst": "nw_dst"}.get(key, key)
+                parts.append(f"{display_key}={match[key]}")
+        return ",".join(parts) if parts else ",".join(f"{key}={value}" for key, value in match.items())
+
+    def _actions_to_string(self, stat):
+        action_parts = []
+        meter_id = self._meter_id_from_stat(stat)
+        if meter_id is not None:
+            action_parts.append(f"meter:{meter_id}")
+        for instruction in getattr(stat, "instructions", []):
+            for action in getattr(instruction, "actions", []) or []:
+                port = getattr(action, "port", None)
+                if port is not None:
+                    action_parts.append(f"output:{self._port_to_string(port)}")
+        return ",".join(action_parts) if action_parts else "drop"
+
+    def _meter_id_from_stat(self, stat):
+        for instruction in getattr(stat, "instructions", []):
+            meter_id = getattr(instruction, "meter_id", None)
+            if meter_id is not None:
+                return int(meter_id)
+        return None
+
+    def _flow_raw(self, flow):
+        return (
+            f"priority={flow['priority']},{flow['match']},"
+            f"n_packets={flow['packets']},n_bytes={flow['bytes']},"
+            f"actions={flow['actions']}"
         )
 
-    def _alerts_for_write(self, merge_alerts):
-        alerts = list(self.alerts)
-        if merge_alerts:
-            alerts = self._merge_alerts(self._read_alerts_from_disk(), alerts)
-        alerts = alerts[-100:]
-        self.alerts = deque(alerts, maxlen=100)
-        return alerts
+    def _meter_raw(self, meter):
+        return (
+            f"meter={meter['meter_id']} kbps bands="
+            f"type=drop rate={meter['rate_kbps']} burst_size={meter['burst_size']} "
+            f"packet_in_count={meter['packet_count']} byte_in_count={meter['byte_count']}"
+        )
 
-    def _read_alerts_from_disk(self):
-        try:
-            with ALERTS_FILE.open("r", encoding="utf-8") as handle:
-                payload = json.load(handle)
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return []
+    def _port_to_string(self, port):
+        reserved_ports = {
+            ofproto_v1_3.OFPP_IN_PORT: "IN_PORT",
+            ofproto_v1_3.OFPP_TABLE: "TABLE",
+            ofproto_v1_3.OFPP_NORMAL: "NORMAL",
+            ofproto_v1_3.OFPP_FLOOD: "FLOOD",
+            ofproto_v1_3.OFPP_ALL: "ALL",
+            ofproto_v1_3.OFPP_CONTROLLER: "CONTROLLER",
+            ofproto_v1_3.OFPP_LOCAL: "LOCAL",
+            ofproto_v1_3.OFPP_ANY: "ANY",
+        }
+        return reserved_ports.get(port, str(port))
 
-        alerts = payload.get("alerts") if isinstance(payload, dict) else payload
-        return alerts if isinstance(alerts, list) else []
+    def _is_table_miss_flow(self, flow):
+        return (
+            flow.get("priority") == 0
+            and flow.get("match") == "all"
+            and "CONTROLLER" in str(flow.get("actions", "")).upper()
+        )
 
-    def _merge_alerts(self, *alert_lists):
-        merged = []
-        seen = set()
-        for alerts in alert_lists:
-            for alert in alerts:
-                if not isinstance(alert, dict):
-                    continue
-                key = json.dumps(alert, sort_keys=True, default=str)
-                if key in seen:
-                    continue
-                seen.add(key)
-                merged.append(alert)
-        return merged[-100:]
 
-    def _atomic_write(self, path, payload):
-        tmp_path = path.with_suffix(path.suffix + ".tmp")
-        with tmp_path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2)
-        os.replace(tmp_path, path)
+class IdsRestController(ControllerBase):
+    def __init__(self, req, link, data, **config):
+        super().__init__(req, link, data, **config)
+        self.ids_app = data[IDS_INSTANCE_NAME]
+
+    @route("ids", "/ryu/status", methods=["GET"])
+    def status(self, req, **kwargs):
+        return json_response(self.ids_app.get_status_payload())
+
+    @route("ids", "/ryu/stats", methods=["GET"])
+    def stats(self, req, **kwargs):
+        return json_response(self.ids_app.get_stats_payload())
+
+    @route("ids", "/ryu/alerts", methods=["GET"])
+    def alerts(self, req, **kwargs):
+        return json_response(self.ids_app.get_alerts_payload())
+
+    @route("ids", "/ryu/datapaths", methods=["GET"])
+    def datapaths(self, req, **kwargs):
+        return json_response(self.ids_app.get_datapaths_payload())
+
+    @route("ids", "/ryu/flows", methods=["GET"])
+    def flows(self, req, **kwargs):
+        return json_response(self.ids_app.get_flows_payload())
+
+    @route("ids", "/ryu/meters", methods=["GET"])
+    def meters(self, req, **kwargs):
+        return json_response(self.ids_app.get_meters_payload())
+
+    @route("ids", "/ryu/mitigations", methods=["GET"])
+    def mitigations(self, req, **kwargs):
+        return json_response(self.ids_app.get_mitigations_payload())
+
+    @route("ids", "/ryu/reset-controller-state", methods=["POST"])
+    def reset_controller_state(self, req, **kwargs):
+        return json_response(self.ids_app.reset_controller_state())

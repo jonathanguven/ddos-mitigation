@@ -4,6 +4,7 @@ import json
 import socket
 from typing import Any
 
+import ryu_client
 from state_store import (
     append_alert,
     reset_state,
@@ -132,4 +133,55 @@ def stop_traffic() -> dict[str, Any]:
 
 
 def reset_demo() -> dict[str, Any]:
-    return run_action("reset")
+    try:
+        mininet_response = send_mininet_command("reset")
+        mininet_ok = bool(mininet_response.get("ok", False))
+        mininet_result = {
+            "ok": mininet_ok,
+            "mode": "mininet",
+            "action": "reset",
+            "message": mininet_response.get(
+                "message" if mininet_ok else "error",
+                "Mininet reset completed" if mininet_ok else "Mininet reset failed",
+            ),
+        }
+    except (OSError, json.JSONDecodeError, TimeoutError) as exc:
+        reset_state()
+        mininet_result = {
+            "ok": True,
+            "mode": "dashboard-fallback",
+            "action": "reset",
+            "message": (
+                "Mininet command server is not reachable; reset dashboard "
+                f"fallback state instead ({exc.__class__.__name__})."
+            ),
+        }
+
+    try:
+        ryu_response = ryu_client.post("/ryu/reset-controller-state")
+        ryu_result = {
+            "ok": bool(ryu_response.get("ok", True)),
+            "mode": "ryu",
+            "action": "reset-controller-state",
+            "message": ryu_response.get("message", "Ryu controller state reset"),
+        }
+    except ryu_client.RyuUnavailable as exc:
+        ryu_result = {
+            "ok": False,
+            "mode": "ryu",
+            "action": "reset-controller-state",
+            "message": ryu_client.fallback_error(exc),
+        }
+
+    if mininet_result["ok"]:
+        reset_state()
+        update_status(mininet_running=True)
+
+    return {
+        "ok": bool(mininet_result["ok"] and ryu_result["ok"]),
+        "mode": "combined",
+        "action": "reset",
+        "message": "Reset sequence completed",
+        "mininet": mininet_result,
+        "ryu": ryu_result,
+    }

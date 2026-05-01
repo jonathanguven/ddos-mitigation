@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -12,7 +13,13 @@ import {
 const CHART_WINDOW_SECONDS = 60;
 
 function MetricsChart({ history }) {
-  const visibleHistory = filterRecentHistory(history, CHART_WINDOW_SECONDS);
+  const [frozenHistory, setFrozenHistory] = useState(null);
+  const isFrozen = frozenHistory !== null;
+  const chartHistory = isFrozen ? frozenHistory : history;
+  const visibleHistory = useMemo(
+    () => filterRecentHistory(chartHistory, CHART_WINDOW_SECONDS),
+    [chartHistory],
+  );
   const data = (visibleHistory.length ? visibleHistory : [emptyPoint()]).map((point) => ({
     time: point.time,
     packets: point.packet_rate || 0,
@@ -24,7 +31,14 @@ function MetricsChart({ history }) {
     <section className="panel metrics-panel">
       <div className="panel-heading">
         <h2>Metrics</h2>
-        <span className="panel-meta">Last 1 min</span>
+        <div className="metrics-heading-actions">
+          <span className={`panel-meta ${isFrozen ? "metrics-paused" : ""}`}>
+            {isFrozen ? "Frozen view" : "Live - last 1 min"}
+          </span>
+          <button className="metrics-freeze-toggle" onClick={toggleFrozen} type="button">
+            {isFrozen ? "Resume" : "Pause"}
+          </button>
+        </div>
       </div>
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height={270}>
@@ -78,6 +92,15 @@ function MetricsChart({ history }) {
       </div>
     </section>
   );
+
+  function toggleFrozen() {
+    if (isFrozen) {
+      setFrozenHistory(null);
+      return;
+    }
+
+    setFrozenHistory([...(history || [])]);
+  }
 }
 
 function filterRecentHistory(history, windowSeconds) {

@@ -1,17 +1,45 @@
+import { useState } from "react";
+
 function FlowRulesPanel({ flows, error, raw }) {
+  const [showAll, setShowAll] = useState(false);
+  const visibleFlows = showAll ? flows : flows.filter(isDemoRelevantFlow);
+  const hiddenFlowCount = flows.length - visibleFlows.length;
+
   return (
     <section className="panel flows-panel">
       <div className="panel-heading">
         <h2>OpenFlow Rules</h2>
-        <span className="panel-meta">ovs-ofctl dump-flows s1</span>
+        <div className="flow-heading-actions">
+          <span className="panel-meta">ovs-ofctl dump-flows s1</span>
+          {flows.length > 0 && (
+            <button
+              className="flow-filter-toggle"
+              onClick={() => setShowAll((current) => !current)}
+              type="button"
+            >
+              {showAll ? "Show demo rules" : "Show all rules"}
+            </button>
+          )}
+        </div>
       </div>
       {error && <div className="inline-warning">{error}</div>}
       <div className="flow-list">
         {flows.length === 0 && !error && <div className="empty-state">No flow rules</div>}
-        {flows.map((flow, index) => (
+        {flows.length > 0 && visibleFlows.length === 0 && !error && (
+          <div className="empty-state">No IP or mitigation rules</div>
+        )}
+        {!showAll && hiddenFlowCount > 0 && (
+          <div className="flow-filter-note">
+            Hiding {hiddenFlowCount} MAC/ARP forwarding {hiddenFlowCount === 1 ? "rule" : "rules"}.
+          </div>
+        )}
+        {visibleFlows.map((flow, index) => (
           <article className="flow-row" key={`${flow.raw}-${index}`}>
             <div className="flow-topline">
-              <strong>Switch: {flow.switch}</strong>
+              <div className="flow-title">
+                <span className="flow-order">#{flow.table_order || index + 1}</span>
+                <strong>Switch: {flow.switch}</strong>
+              </div>
               <span className={actionClass(flow)}>
                 {actionLabel(flow)}
               </span>
@@ -62,6 +90,12 @@ function actionLabel(flow) {
   if (isMeter(flow)) {
     return "RATE_LIMIT";
   }
+  if (isIpForwarding(flow)) {
+    return "IP forwarding";
+  }
+  if (isMacForwarding(flow)) {
+    return "MAC/ARP forwarding";
+  }
   return "FORWARD";
 }
 
@@ -73,6 +107,18 @@ function actionClass(flow) {
     return "meter-action";
   }
   return "forward-action";
+}
+
+function isDemoRelevantFlow(flow) {
+  return isDrop(flow.actions) || isMeter(flow) || isIpForwarding(flow);
+}
+
+function isIpForwarding(flow) {
+  return Number(flow.priority) >= 10 && /\b(?:ip|nw_src|nw_dst)\b/i.test(flow.match || "");
+}
+
+function isMacForwarding(flow) {
+  return Number(flow.priority) <= 1 || /\b(?:dl_src|dl_dst|eth_src|eth_dst|arp)\b/i.test(flow.match || "");
 }
 
 export default FlowRulesPanel;

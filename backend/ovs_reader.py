@@ -59,6 +59,8 @@ def get_flows(switch: str = "s1") -> dict[str, Any]:
         for flow in (parse_flow_line(line, switch) for line in flow_lines)
         if not _is_table_miss_flow(flow)
     ]
+    for index, flow in enumerate(flows, start=1):
+        flow["table_order"] = index
     return {
         "flows": flows,
         "raw": [flow["raw"] for flow in flows],

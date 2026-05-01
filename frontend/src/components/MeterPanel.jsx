@@ -3,7 +3,7 @@ function MeterPanel({ meters, error, raw }) {
     <section className="panel meters-panel">
       <div className="panel-heading">
         <h2>OpenFlow Meters</h2>
-        <span className="panel-meta">ovs-ofctl dump-meters s1</span>
+        <span className="panel-meta">Ryu meter state</span>
       </div>
       {error && <div className="inline-warning">{error}</div>}
       <div className="meter-list">

@@ -50,7 +50,7 @@ function App() {
 
   useEffect(() => {
     refreshAll();
-    const timer = window.setInterval(refreshAll, 1000);
+    const timer = window.setInterval(refreshAll, 500);
     return () => window.clearInterval(timer);
   }, [refreshAll]);
 

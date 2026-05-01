@@ -36,6 +36,10 @@ def now_clock() -> str:
     return time.strftime("%H:%M:%S")
 
 
+def now_clock_ms() -> str:
+    return f"{time.strftime('%H:%M:%S')}.{int((time.time() % 1) * 1000):03d}"
+
+
 def default_hosts() -> list[dict[str, Any]]:
     return [
         {
@@ -166,7 +170,7 @@ def synthetic_normal_state() -> None:
     write_stats(
         hosts,
         {
-            "time": now_clock(),
+            "time": now_clock_ms(),
             "packet_rate": total_packet_rate,
             "byte_rate": total_byte_rate,
             "victim_throughput": total_byte_rate,
@@ -198,7 +202,7 @@ def synthetic_single_source_flood_state() -> None:
     write_stats(
         hosts,
         {
-            "time": now_clock(),
+            "time": now_clock_ms(),
             "packet_rate": 45000,
             "byte_rate": 12000000,
             "victim_throughput": 0,
@@ -242,7 +246,7 @@ def synthetic_multi_source_flood_state() -> None:
     write_stats(
         hosts,
         {
-            "time": now_clock(),
+            "time": now_clock_ms(),
             "packet_rate": 1950,
             "byte_rate": 1560000,
             "victim_throughput": 1560000,
@@ -263,7 +267,7 @@ def synthetic_stop_state() -> None:
     write_stats(
         default_hosts(),
         {
-            "time": now_clock(),
+            "time": now_clock_ms(),
             "packet_rate": 0,
             "byte_rate": 0,
             "victim_throughput": 0,
@@ -282,7 +286,7 @@ def reset_state() -> None:
     write_stats(
         default_hosts(),
         {
-            "time": now_clock(),
+            "time": now_clock_ms(),
             "packet_rate": 0,
             "byte_rate": 0,
             "victim_throughput": 0,

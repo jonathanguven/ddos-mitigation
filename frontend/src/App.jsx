@@ -3,6 +3,7 @@ import { Activity, RadioTower } from "lucide-react";
 import { api } from "./api.js";
 import AlertsPanel from "./components/AlertsPanel.jsx";
 import ControlPanel from "./components/ControlPanel.jsx";
+import EvaluationMetricsPanel from "./components/EvaluationMetricsPanel.jsx";
 import FlowRulesPanel from "./components/FlowRulesPanel.jsx";
 import HostStatsPanel from "./components/HostStatsPanel.jsx";
 import MeterPanel from "./components/MeterPanel.jsx";
@@ -142,6 +143,13 @@ function App() {
           onRefreshFlows={() => runAction("flows", api.refreshFlows)}
         />
         <MetricsChart history={stats.history || []} />
+        <EvaluationMetricsPanel
+          alerts={alerts.alerts || []}
+          flows={flows.flows || []}
+          history={stats.history || []}
+          hosts={stats.hosts || []}
+          meters={meters.meters || []}
+        />
         <FlowRulesPanel flows={flows.flows || []} error={flows.error} raw={flows.raw || []} />
         <MeterPanel meters={meters.meters || []} error={meters.error} raw={meters.raw || []} />
       </section>

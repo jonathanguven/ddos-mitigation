@@ -70,6 +70,7 @@ class IdsController(app_manager.RyuApp):
         self.meter_stats = {}
         self.next_meter_id = 1
         self.installed_meters = set()
+        self.pending_barriers = {}
         self.demo_state = "idle"
         self.alerts = deque(maxlen=100)
         self.metrics = deque(maxlen=120)
@@ -210,6 +211,18 @@ class IdsController(app_manager.RyuApp):
             req = parser.OFPMeterStatsRequest(datapath, meter_id=ofproto.OFPM_ALL)
         datapath.send_msg(req)
 
+    def request_mitigation_barrier(self, datapath, key):
+        parser = datapath.ofproto_parser
+        req = parser.OFPBarrierRequest(datapath)
+        datapath.set_xid(req)
+        sent_at = time.time()
+        datapath.send_msg(req)
+        self.pending_barriers[(datapath.id, req.xid)] = {
+            "key": key,
+            "sent_at": sent_at,
+        }
+        return sent_at
+
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
         datapath = ev.msg.datapath
@@ -349,16 +362,37 @@ class IdsController(app_manager.RyuApp):
             }
         self._touch()
 
+    @set_ev_cls(ofp_event.EventOFPBarrierReply, MAIN_DISPATCHER)
+    def barrier_reply_handler(self, ev):
+        datapath = ev.msg.datapath
+        pending = self.pending_barriers.pop((datapath.id, ev.msg.xid), None)
+        if not pending:
+            return
+
+        installed_at = time.time()
+        key = pending["key"]
+        mitigation = self.mitigated.get(key)
+        if mitigation:
+            mitigation["barrier_sent_at"] = pending["sent_at"]
+            mitigation["switch_installed_at"] = installed_at
+            self._update_mitigation_alert(key, installed_at)
+        self._touch()
+
     def _evaluate_single_source(self, datapath, src_ip, dst_ip, packet_rate):
         key = (src_ip, dst_ip)
         mitigation = self.mitigated.get(key)
         if packet_rate >= SINGLE_SOURCE_DROP_THRESHOLD:
             if not mitigation or mitigation["action"] != "drop":
+                detected_at = time.time()
                 self.install_drop_rule(datapath, src_ip, dst_ip)
+                barrier_sent_at = self.request_mitigation_barrier(datapath, key)
                 self.mitigated[key] = {
                     "action": "drop",
                     "type": "single_source_flood",
-                    "installed_at": time.time(),
+                    "detected_at": detected_at,
+                    "barrier_sent_at": barrier_sent_at,
+                    "installed_at": barrier_sent_at,
+                    "switch_installed_at": None,
                 }
                 self._add_alert(
                     "critical",
@@ -370,6 +404,8 @@ class IdsController(app_manager.RyuApp):
                     src_ip=src_ip,
                     dst_ip=dst_ip,
                     mitigation="drop",
+                    detected_at=detected_at,
+                    rule_install_sent_at=barrier_sent_at,
                 )
             return
 
@@ -378,18 +414,25 @@ class IdsController(app_manager.RyuApp):
             if len(sources) < MULTI_SOURCE_SOURCE_COUNT:
                 continue
             installed_sources = []
+            detected_at = time.time()
+            latest_barrier_sent_at = None
             for src_ip in sorted(sources):
                 key = (src_ip, dst_ip)
                 existing_action = self.mitigated.get(key, {}).get("action")
                 if existing_action in {"drop", "rate_limit"}:
                     continue
                 if self.install_meter_rule(datapath, src_ip, dst_ip):
+                    barrier_sent_at = self.request_mitigation_barrier(datapath, key)
                     self.mitigated[key] = {
                         "action": "rate_limit",
                         "type": "multi_source_flood",
-                        "installed_at": time.time(),
+                        "detected_at": detected_at,
+                        "barrier_sent_at": barrier_sent_at,
+                        "installed_at": barrier_sent_at,
+                        "switch_installed_at": None,
                     }
                     installed_sources.append(src_ip)
+                    latest_barrier_sent_at = barrier_sent_at
 
             if installed_sources:
                 self._add_alert(
@@ -402,6 +445,8 @@ class IdsController(app_manager.RyuApp):
                     src_ips=sorted(sources),
                     dst_ip=dst_ip,
                     mitigation="rate_limit",
+                    detected_at=detected_at,
+                    rule_install_sent_at=latest_barrier_sent_at,
                 )
 
     def install_drop_rule(self, datapath, src_ip, dst_ip):
@@ -491,6 +536,7 @@ class IdsController(app_manager.RyuApp):
         self.meter_configs.clear()
         self.meter_stats.clear()
         self.installed_meters.clear()
+        self.pending_barriers.clear()
         self.next_meter_id = 1
         self.demo_state = "idle"
         self.host_stats = self._initial_host_stats()
@@ -591,6 +637,17 @@ class IdsController(app_manager.RyuApp):
             self.demo_state = "mitigated"
         self._touch()
 
+    def _update_mitigation_alert(self, key, installed_at):
+        src_ip, dst_ip = key
+        for alert in reversed(self.alerts):
+            if alert.get("dst_ip") != dst_ip:
+                continue
+            if alert.get("src_ip") == src_ip or src_ip in (alert.get("src_ips") or []):
+                current_installed_at = alert.get("rule_installed_at")
+                if current_installed_at is None or installed_at > current_installed_at:
+                    alert["rule_installed_at"] = installed_at
+                return
+
     def _touch(self):
         self.last_updated = current_iso()
 
@@ -655,6 +712,9 @@ class IdsController(app_manager.RyuApp):
                     "dst_ip": dst_ip,
                     "action": mitigation.get("action"),
                     "type": mitigation.get("type"),
+                    "detected_at": mitigation.get("detected_at"),
+                    "barrier_sent_at": mitigation.get("barrier_sent_at"),
+                    "switch_installed_at": mitigation.get("switch_installed_at"),
                     "installed_at": mitigation.get("installed_at"),
                 }
             )

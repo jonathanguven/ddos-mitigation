@@ -2,6 +2,7 @@
 
 import json
 import socket
+import time
 from typing import Any
 
 import ryu_client
@@ -78,6 +79,7 @@ def _apply_success_state(action: str, response: dict[str, Any]) -> None:
         update_status(demo_state="normal", mininet_running=True)
         append_alert("info", response.get("message", "Normal traffic started"))
     elif action == "start_single_source_flood":
+        started_at = time.time()
         update_status(demo_state="attack", mininet_running=True)
         append_alert(
             "warning",
@@ -85,8 +87,10 @@ def _apply_success_state(action: str, response: dict[str, Any]) -> None:
             alert_type="single_source_flood",
             src_ip=response.get("attacker_ip"),
             dst_ip=response.get("victim_ip"),
+            traffic_started_at=started_at,
         )
     elif action == "start_multi_source_flood":
+        started_at = time.time()
         update_status(demo_state="attack", mininet_running=True)
         append_alert(
             "warning",
@@ -94,6 +98,7 @@ def _apply_success_state(action: str, response: dict[str, Any]) -> None:
             alert_type="multi_source_flood",
             src_ips=response.get("attacker_ips"),
             dst_ip=response.get("victim_ip"),
+            traffic_started_at=started_at,
         )
     elif action == "stop_traffic":
         update_status(demo_state="idle", mininet_running=True)

@@ -75,8 +75,37 @@ def alerts():
         return state_store.get_alerts()
 
     fallback_alerts = state_store.get_alerts().get("alerts", [])
-    alerts = [*fallback_alerts, *ryu_alerts.get("alerts", [])][-100:]
+    alerts = merge_attack_alerts([*fallback_alerts, *ryu_alerts.get("alerts", [])])[-100:]
     return {"alerts": alerts}
+
+
+def merge_attack_alerts(alerts):
+    merged = {}
+    passthrough = []
+    for alert in alerts:
+        signature = attack_signature(alert)
+        if signature is None:
+            passthrough.append(alert)
+            continue
+        current = merged.get(signature, {})
+        merged[signature] = {**current, **alert}
+        if current.get("traffic_started_at") and not alert.get("traffic_started_at"):
+            merged[signature]["traffic_started_at"] = current["traffic_started_at"]
+    return [*passthrough, *merged.values()]
+
+
+def attack_signature(alert):
+    alert_type = alert.get("alert_type")
+    if alert_type not in {"single_source_flood", "multi_source_flood"}:
+        return None
+    sources = alert.get("src_ips") or [alert.get("src_ip") or "multiple"]
+    return "|".join(
+        [
+            alert_type,
+            alert.get("dst_ip") or "victim",
+            *sorted(str(source) for source in sources),
+        ]
+    )
 
 
 @app.get("/api/flows")

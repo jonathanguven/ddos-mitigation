@@ -164,6 +164,7 @@ h2 {
     "topology hosts"
     "alerts controls"
     "metrics metrics"
+    "evaluation evaluation"
     "flows flows"
     "meters meters";
   grid-template-columns: minmax(520px, 1.05fr) minmax(420px, 0.95fr);
@@ -421,6 +422,7 @@ h2 {
 }
 
 .metrics-panel,
+.evaluation-panel,
 .flows-panel,
 .meters-panel {
   grid-column: 1 / -1;
@@ -428,6 +430,10 @@ h2 {
 
 .metrics-panel {
   grid-area: metrics;
+}
+
+.evaluation-panel {
+  grid-area: evaluation;
 }
 
 .flows-panel {
@@ -460,6 +466,50 @@ th {
   color: #657586;
   font-size: 0.78rem;
   text-transform: uppercase;
+}
+
+.evaluation-table {
+  min-width: 1120px;
+}
+
+.evaluation-table td {
+  vertical-align: middle;
+}
+
+.empty-table-cell {
+  color: #657586;
+  height: 56px;
+  text-align: center;
+}
+
+.metric-attack,
+.stability-pill {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+
+.metric-drop {
+  background: #ffeded;
+  color: #9d2525;
+}
+
+.metric-rate_limit {
+  background: #fff2ce;
+  color: #7b5410;
+}
+
+.stability-stable {
+  background: #e7f6ef;
+  color: #176142;
+}
+
+.stability-warning {
+  background: #fff2ce;
+  color: #7b5410;
 }
 
 .mono {
@@ -722,6 +772,7 @@ th {
       "alerts"
       "controls"
       "metrics"
+      "evaluation"
       "flows"
       "meters";
     grid-template-columns: 1fr;

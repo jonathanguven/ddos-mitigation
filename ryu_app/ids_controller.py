@@ -269,15 +269,16 @@ class IdsController(app_manager.RyuApp):
             byte_rate = max((stat.byte_count - previous["curr_bytes"]) / elapsed, 0)
             is_drop = self._is_drop_stat(stat)
             is_meter = self._has_meter_instruction(stat)
+            displayed_byte_rate = self._displayed_byte_rate(byte_rate, stat)
 
             flow_record.update(packet_rate=packet_rate, byte_rate=byte_rate)
             total_packet_rate += packet_rate
-            total_byte_rate += byte_rate
+            total_byte_rate += displayed_byte_rate
 
             if src_ip in host_updates:
                 source = host_updates[src_ip]
                 source["packet_rate"] += round(packet_rate)
-                source["byte_rate"] += round(byte_rate)
+                source["byte_rate"] += round(displayed_byte_rate)
                 mitigation = self.mitigated.get((src_ip, dst_ip))
                 if is_drop or (mitigation and mitigation["action"] == "drop"):
                     source["status"] = "blocked"
@@ -293,7 +294,7 @@ class IdsController(app_manager.RyuApp):
 
             if not is_drop:
                 victim_rates[dst_ip]["packet_rate"] += packet_rate
-                victim_rates[dst_ip]["byte_rate"] += byte_rate
+                victim_rates[dst_ip]["byte_rate"] += displayed_byte_rate
                 if packet_rate >= MULTI_SOURCE_MIN_RATE:
                     victim_sources[dst_ip].add(src_ip)
 
@@ -605,6 +606,23 @@ class IdsController(app_manager.RyuApp):
             if getattr(instruction, "meter_id", None) is not None:
                 return True
         return False
+
+    def _displayed_byte_rate(self, byte_rate, stat):
+        meter_id = self._meter_id_from_stat(stat)
+        if meter_id is None:
+            return byte_rate
+
+        rate_kbps = None
+        for (_dpid, configured_meter_id), config in self.meter_configs.items():
+            if configured_meter_id == meter_id:
+                rate_kbps = config.get("rate_kbps")
+                break
+
+        if not rate_kbps:
+            rate_kbps = METER_RATE_KBPS
+
+        meter_byte_rate = (float(rate_kbps) * 1000) / 8
+        return min(byte_rate, meter_byte_rate)
 
     def _apply_mitigation_to_hosts(self, host_updates):
         for (src_ip, dst_ip), mitigation in self.mitigated.items():

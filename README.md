@@ -1,4 +1,5 @@
-# SDN IDS + DDoS Mitigation Dashboard
+# SDN-based Intrusion Detection & Automated DDoS Mitigation
+
 
 Working demo system for:
 

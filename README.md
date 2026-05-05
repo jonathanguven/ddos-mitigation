@@ -1,12 +1,15 @@
-# SDN IDS + DDoS Mitigation Dashboard
+# SDN-based Intrusion Detection & Automated DDoS Mitigation
+
 
 Working demo system for:
 
 - Vite + React dashboard
+
+  - Traffic controls, host statistics, IDS alerts, and mitigation flow visibility
+
 - FastAPI control API
 - Ryu OpenFlow 1.3 IDS controller
 - Mininet + Open vSwitch topology
-- Traffic controls, host statistics, IDS alerts, and mitigation flow visibility
 
 ## Architecture
 

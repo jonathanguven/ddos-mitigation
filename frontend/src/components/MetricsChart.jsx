@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -12,7 +12,7 @@ import {
 
 const CHART_WINDOW_SECONDS = 60;
 
-function MetricsChart({ history }) {
+function MetricsChart({ history, resetVersion }) {
   const [frozenHistory, setFrozenHistory] = useState(null);
   const isFrozen = frozenHistory !== null;
   const chartHistory = isFrozen ? frozenHistory : history;
@@ -26,6 +26,10 @@ function MetricsChart({ history }) {
     mbps: bytesToMbps(point.byte_rate || 0),
     victim: bytesToMbps(point.victim_throughput || 0),
   }));
+
+  useEffect(() => {
+    setFrozenHistory(null);
+  }, [resetVersion]);
 
   return (
     <section className="panel metrics-panel">

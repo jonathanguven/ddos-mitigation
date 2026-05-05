@@ -28,6 +28,7 @@ function App() {
   const [meters, setMeters] = useState(emptyMeters);
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
+  const [resetVersion, setResetVersion] = useState(0);
 
   const refreshAll = useCallback(async () => {
     try {
@@ -139,10 +140,15 @@ function App() {
             runAction("multi-source", api.startMultiSourceFlood)
           }
           onStop={() => runAction("stop", api.stopTraffic)}
-          onReset={() => runAction("reset", api.resetDemo)}
+          onReset={() =>
+            runAction("reset", async () => {
+              await api.resetDemo();
+              setResetVersion((version) => version + 1);
+            })
+          }
           onRefreshFlows={() => runAction("flows", api.refreshFlows)}
         />
-        <MetricsChart history={stats.history || []} />
+        <MetricsChart history={stats.history || []} resetVersion={resetVersion} />
         <EvaluationMetricsPanel
           alerts={alerts.alerts || []}
           flows={flows.flows || []}

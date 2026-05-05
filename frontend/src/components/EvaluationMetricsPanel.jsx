@@ -327,6 +327,7 @@ function findAttackStartPoint(points, peakMilliseconds, threshold, peakBytes) {
 
 function findPostPeakProtectedPoint(points, peakMilliseconds, threshold, peakBytes) {
   const recoveredThroughput = peakBytes * 0.1;
+  const mitigatedThroughput = peakBytes * 0.85;
   return points.find((point) => {
     const pointMilliseconds = clockToMilliseconds(point.time);
     if (pointMilliseconds === null || pointMilliseconds <= peakMilliseconds) {
@@ -335,6 +336,7 @@ function findPostPeakProtectedPoint(points, peakMilliseconds, threshold, peakByt
 
     return (
       Number(point.victim_throughput || 0) <= recoveredThroughput ||
+      Number(point.victim_throughput || 0) <= mitigatedThroughput ||
       Number(point.packet_rate || 0) < threshold
     );
   });

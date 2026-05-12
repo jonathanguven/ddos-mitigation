@@ -232,6 +232,7 @@ class IdsController(app_manager.RyuApp):
         total_byte_rate = 0
         victim_rates = defaultdict(lambda: {"packet_rate": 0, "byte_rate": 0})
         victim_sources = defaultdict(set)
+        single_source_candidates = []
         latest_flow_keys = set()
         for stat in ev.msg.body:
             flow = self._serialize_flow_stat(datapath.id, stat)
@@ -298,9 +299,19 @@ class IdsController(app_manager.RyuApp):
                 if packet_rate >= MULTI_SOURCE_MIN_RATE:
                     victim_sources[dst_ip].add(src_ip)
 
-            self._evaluate_single_source(datapath, src_ip, dst_ip, packet_rate)
+            if packet_rate >= SINGLE_SOURCE_DROP_THRESHOLD:
+                single_source_candidates.append((src_ip, dst_ip, packet_rate))
 
         self._evaluate_multi_source_flood(datapath, victim_sources)
+        multi_source_victims = {
+            dst_ip
+            for dst_ip, sources in victim_sources.items()
+            if len(sources) >= MULTI_SOURCE_SOURCE_COUNT
+        }
+        for src_ip, dst_ip, packet_rate in single_source_candidates:
+            if dst_ip in multi_source_victims:
+                continue
+            self._evaluate_single_source(datapath, src_ip, dst_ip, packet_rate)
 
         for dst_ip, rates in victim_rates.items():
             if dst_ip not in host_updates:
@@ -382,32 +393,33 @@ class IdsController(app_manager.RyuApp):
     def _evaluate_single_source(self, datapath, src_ip, dst_ip, packet_rate):
         key = (src_ip, dst_ip)
         mitigation = self.mitigated.get(key)
+        if mitigation and mitigation["action"] in {"drop", "rate_limit"}:
+            return
         if packet_rate >= SINGLE_SOURCE_DROP_THRESHOLD:
-            if not mitigation or mitigation["action"] != "drop":
-                detected_at = time.time()
-                self.install_drop_rule(datapath, src_ip, dst_ip)
-                barrier_sent_at = self.request_mitigation_barrier(datapath, key)
-                self.mitigated[key] = {
-                    "action": "drop",
-                    "type": "single_source_flood",
-                    "detected_at": detected_at,
-                    "barrier_sent_at": barrier_sent_at,
-                    "installed_at": barrier_sent_at,
-                    "switch_installed_at": None,
-                }
-                self._add_alert(
-                    "critical",
-                    (
-                        f"High-rate flood detected from {src_ip} to {dst_ip}. "
-                        f"Drop rule installed on s{datapath.id}."
-                    ),
-                    alert_type="single_source_flood",
-                    src_ip=src_ip,
-                    dst_ip=dst_ip,
-                    mitigation="drop",
-                    detected_at=detected_at,
-                    rule_install_sent_at=barrier_sent_at,
-                )
+            detected_at = time.time()
+            self.install_drop_rule(datapath, src_ip, dst_ip)
+            barrier_sent_at = self.request_mitigation_barrier(datapath, key)
+            self.mitigated[key] = {
+                "action": "drop",
+                "type": "single_source_flood",
+                "detected_at": detected_at,
+                "barrier_sent_at": barrier_sent_at,
+                "installed_at": barrier_sent_at,
+                "switch_installed_at": None,
+            }
+            self._add_alert(
+                "critical",
+                (
+                    f"High-rate flood detected from {src_ip} to {dst_ip}. "
+                    f"Drop rule installed on s{datapath.id}."
+                ),
+                alert_type="single_source_flood",
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                mitigation="drop",
+                detected_at=detected_at,
+                rule_install_sent_at=barrier_sent_at,
+            )
             return
 
     def _evaluate_multi_source_flood(self, datapath, victim_sources):
